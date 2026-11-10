@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pattern Finder</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Pattern Finder</h1>
+      <p class="sub">
+        Looks for text, watermarks, colour patterns and hidden data in an image.
+        Everything runs in your browser: your image never leaves this page.
+      </p>
+    </header>
+
+    <section class="card" id="input-card">
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" />
+        <span class="drop-main">Drop an image here or click to choose one</span>
+        <span class="drop-sub">PNG keeps hidden data intact. JPEG and WebP compression destroy most of it.</span>
+      </label>
+      <div class="row-actions">
+        <span class="demo-label">Or try a demo:</span>
+        <button type="button" class="secondary" id="sample">Planted hidden content</button>
+        <button type="button" class="secondary demo" data-src="demo/alpine-lake-chatgpt.png">ChatGPT image: alpine lake</button>
+        <button type="button" class="secondary demo" data-src="demo/neon-waves-chatgpt.png">ChatGPT image: neon waves</button>
+        <button type="button" class="secondary demo" data-src="demo/ribbons-c2pa.jpg">Edited photo with credentials</button>
+      </div>
+
+      <div class="options">
+        <label class="check">
+          <input type="checkbox" id="use-ocr" checked />
+          <span><strong>Read text</strong> with Florence-2 (<span id="ocr-size">about 360 MB</span>, downloaded once)</span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="use-vlm" />
+          <span><strong>Interpret with AI</strong> using Qwen3-VL-2B (about 1.4 GB, downloaded once, needs WebGPU)</span>
+        </label>
+        <p class="caps" id="caps">Checking your browser…</p>
+      </div>
+
+      <div class="storage" id="storage" hidden>
+        <span id="storage-text"></span>
+        <button type="button" class="link" id="clear">Remove downloaded models</button>
+      </div>
+    </section>
+
+    <section class="card" id="progress-card" hidden>
+      <ol class="steps" id="steps"></ol>
+      <div class="bar" id="bar-wrap" hidden><div class="bar-fill" id="bar"></div></div>
+      <p class="bar-text" id="bar-text"></p>
+      <button type="button" class="secondary" id="stop" hidden>Stop</button>
+    </section>
+
+    <section id="results" hidden>
+      <section class="card">
+        <h2>Findings</h2>
+        <p class="notes" id="notes"></p>
+        <ul class="findings" id="findings"></ul>
+      </section>
+
+      <section class="card" id="ai-card" hidden>
+        <h2>AI interpretation</h2>
+        <p class="hint">Written by Qwen3-VL-2B from the pictures and the findings above. It can be wrong; the findings are the evidence.</p>
+        <div class="ai" id="ai"></div>
+        <details class="sent">
+          <summary>What the AI was shown</summary>
+          <div class="thumbs" id="ai-images"></div>
+          <pre id="ai-prompt"></pre>
+        </details>
+      </section>
+
+      <section class="card">
+        <h2>Views</h2>
+        <div class="tabs" id="tabs" role="tablist"></div>
+        <p class="hint" id="view-info"></p>
+        <div class="stage" id="stage">
+          <canvas id="view"></canvas>
+          <svg id="overlay" preserveAspectRatio="none"></svg>
+        </div>
+        <label class="check small"><input type="checkbox" id="show-boxes" checked /> <span>Show text boxes</span></label>
+      </section>
+
+      <section class="card" id="text-card">
+        <h2>Text found</h2>
+        <table class="texts">
+          <thead><tr><th>Text</th><th>Seen in</th><th>Position</th></tr></thead>
+          <tbody id="texts"></tbody>
+        </table>
+        <p class="hint" id="texts-empty" hidden>No text found.</p>
+      </section>
+
+      <section class="card">
+        <h2>Colours</h2>
+        <div class="palette" id="palette"></div>
+        <dl class="stats" id="color-stats"></dl>
+      </section>
+
+      <section class="card">
+        <h2>File</h2>
+        <dl class="stats" id="file-stats"></dl>
+        <details>
+          <summary>File structure</summary>
+          <p class="mono" id="structure"></p>
+        </details>
+      </section>
+    </section>
+
+    <footer>
+      Models: <a href="https://huggingface.co/onnx-community/Florence-2-base-ft" target="_blank" rel="noopener">Florence-2-base</a> (MIT) ·
+      <a href="https://huggingface.co/onnx-community/Qwen3-VL-2B-Instruct-ONNX" target="_blank" rel="noopener">Qwen3-VL-2B-Instruct</a> (Apache-2.0) ·
+      Runs with <a href="https://huggingface.co/docs/transformers.js" target="_blank" rel="noopener">Transformers.js</a>
+    </footer>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
