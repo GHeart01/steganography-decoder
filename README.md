@@ -1,5 +1,5 @@
 ---
-title: Pattern Finder
+title: AI Image Decoder
 emoji: 🔍
 colorFrom: indigo
 colorTo: yellow
@@ -12,7 +12,7 @@ models:
   - onnx-community/Qwen3-VL-2B-Instruct-ONNX
 ---
 
-# Pattern Finder
+# AI Image Decoder
 
 Looks for text, watermarks, colour patterns and hidden data in an image.
 Everything runs in the visitor's browser with
@@ -47,7 +47,7 @@ Four one-click demos: two ChatGPT images whose credentials declare them
 AI-generated and watermarked, a real photo with an edit history, and a sample
 with planted hidden content. See [`demo/README.md`](demo/README.md).
 
-Source and screenshots: [github.com/GHeart01/pattern-finder](https://github.com/GHeart01/pattern-finder)
+Source and screenshots: [github.com/GHeart01/ai-image-decoder](https://github.com/GHeart01/ai-image-decoder)
 
 ## Limits
 

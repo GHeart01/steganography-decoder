@@ -1,33 +1,53 @@
-# Pattern Finder
+# AI Image Decoder
 
 Find text, watermarks, colour patterns and hidden data in an image, with AI models that run entirely in your browser. No server, no API key, and your image never leaves the page.
 
-**[▶ Try the live demo on Hugging Face Spaces](https://huggingface.co/spaces/GHeart01/pattern-finder)**
+**[▶ Try the live demo on Hugging Face Spaces](https://huggingface.co/spaces/GHeart01/ai-image-decoder)**
 
-![Pattern Finder's start screen: drop zone, four demo buttons and the model options](screenshot.jpg)
+![AI Image Decoder after analysing the neon waves image: content credentials say it was made with AI and record an invisible watermark](screenshot.jpg)
 
-## Real demo results
+## Real demo: two ChatGPT images
 
-The app ships with four demo images, one click each. These are the actual results from the app; nothing below is staged.
+These two images were generated with ChatGPT. Both are one-click demos in the app, and everything below is the app's actual output.
 
-| Demo | What Pattern Finder found |
-|---|---|
-| **ChatGPT image: alpine lake** | Its C2PA content credentials say it is **AI-generated**, made with **ChatGPT / OpenAI Media Service API**, and record that OpenAI **added an invisible watermark**. No visible text, no hidden data. |
-| **ChatGPT image: neon waves** | The same AI-generation credentials and invisible-watermark record. No hidden data in the pixels. |
-| **Edited photo with credentials** | A real ribbons photo whose credentials record it being opened and colour-adjusted. The frequency check picks up the ribbons' ribbed texture as a repeating pattern. |
-| **Planted hidden content** | Everything planted is found: a ZIP file attached after the image, a sentence hidden in the pixels' lowest bits, a PNG comment, a 4%-opacity "PROOF" watermark repeated across the image, and colour-camouflaged "MEET AT NOON" text. |
+<p>
+  <img src="../demo/alpine-lake-chatgpt.png" width="49%" alt="ChatGPT-generated alpine lake at sunset">
+  <img src="../demo/neon-waves-chatgpt.png" width="49%" alt="ChatGPT-generated neon indigo contour waves">
+</p>
 
-### ChatGPT image: what the file says, and what the AI makes of it
+| | Alpine lake | Neon waves |
+|---|---|---|
+| **Content credentials (C2PA)** | AI-generated, made with ChatGPT / OpenAI Media Service API | Same |
+| **Recorded steps** | Created, converted to another format, invisible watermark added | Same |
+| **Visible text** | None | None |
+| **Hidden data in the pixels or file** | None | None |
 
-![Findings for the ChatGPT alpine lake image: content credentials say it was made with AI and record an invisible watermark, followed by Qwen3-VL-2B's interpretation](demo-alpine-findings.jpg)
+### Alpine lake: findings and AI interpretation
 
-### Planted hidden content: findings
+The file checks read the credentials; Qwen3-VL-2B then describes the scene and explains what the credentials mean.
 
-![Findings for the planted sample: appended ZIP, text hidden in the lowest bits, repeated PROOF watermark, PNG comment and a frequency pattern](demo-sample-findings.jpg)
+![Findings for the alpine lake image followed by Qwen3-VL-2B's interpretation](alpine-findings.jpg)
 
-### The high-saturation view exposes faint and colour-camouflaged marks
+### Alpine lake: high-saturation view
 
-![High-saturation view of the planted sample, with the faint PROOF watermark and the MEET AT NOON text clearly visible and boxed by OCR](demo-sample-views.jpg)
+Exaggerating colour differences is how the app exposes marks that blend into the image. Here it makes the small faint logo in the top-right corner easier to see.
+
+![High-saturation view of the alpine lake image](alpine-high-saturation.jpg)
+
+### Neon waves: findings and AI interpretation
+
+![Findings for the neon waves image followed by Qwen3-VL-2B's interpretation](neon-findings.jpg)
+
+### Neon waves: low-saturation view
+
+Removing colour and equalising brightness shows the structure of the line field, and any faint mark that differs only in shade.
+
+![Low-saturation view of the neon waves image](neon-low-saturation.jpg)
+
+### More demos in the app
+
+- **Edited photo with credentials:** a real photo whose credentials record it being opened and colour-adjusted.
+- **Planted hidden content:** a generated test image. The app finds everything planted: a ZIP file attached after the image, a sentence hidden in the pixels' lowest bits, a PNG comment, a 4%-opacity "PROOF" watermark, and colour-camouflaged text.
 
 ## What it checks
 
@@ -49,8 +69,8 @@ The pixel and file checks finish in about a second. With the models stored, a fu
 Run it locally with any static file server. You need one because browsers block ES modules on `file://` pages.
 
 ```bash
-git clone https://github.com/GHeart01/pattern-finder.git
-cd pattern-finder
+git clone https://github.com/GHeart01/ai-image-decoder.git
+cd ai-image-decoder
 python3 -m http.server 8000
 ```
 
@@ -83,10 +103,10 @@ npm test
 The app is a free **static** [Hugging Face Space](https://huggingface.co/docs/hub/spaces). With the [`hf` CLI](https://huggingface.co/docs/huggingface_hub/guides/cli) logged in (`hf auth login`), run this from the repo folder, replacing `<username>`:
 
 ```bash
-hf repos create <username>/pattern-finder --type space --sdk static
+hf repos create <username>/ai-image-decoder --type space --sdk static
 ```
 ```bash
-hf upload <username>/pattern-finder . --type space --exclude ".git/*" --exclude ".github/*" --exclude "tests/node_modules/*"
+hf upload <username>/ai-image-decoder . --type space --exclude ".git/*" --exclude ".github/*" --exclude "tests/node_modules/*"
 ```
 
 The root [`README.md`](../README.md) holds the Space's settings in its front matter, so keep that file. This page lives in `.github/README.md` so that GitHub shows it instead. Any other static host works too.
@@ -96,7 +116,7 @@ The root [`README.md`](../README.md) holds the Space's settings in its front mat
 - **Lossy files:** JPEG and WebP compression rewrite the lowest bits, so hidden-bit results on those formats are weak evidence.
 - **Invisible model watermarks** (OpenAI's, SynthID, Stable Diffusion's DWT-DCT mark) can't be decoded; they need the maker's detector. The app reports when content credentials *say* one was added.
 - **Content credentials aren't verified.** The app reads what the manifest claims; check the signature at [contentcredentials.org/verify](https://contentcredentials.org/verify).
-- **Small logos:** there's no trained logo or watermark detector. Watermarks are inferred from repeated text, text that appears only after enhancement, and the AI's reading. The small faint logo in the alpine lake image's top-right corner isn't picked up.
+- **Small logos:** there's no trained logo or watermark detector. Watermarks are inferred from repeated text, text that appears only after enhancement, and the AI's reading. The small faint logo in the alpine lake image's top-right corner isn't flagged as a finding, though the high-saturation view shows it.
 - **The AI interpretation can be wrong.** Qwen3-VL-2B is small: in testing it sometimes named colours wrong or left a finding out of its summary. The raw findings always appear above it.
 - **Tested in Chrome on Apple Silicon.** The no-WebGPU path, Safari and 16-bit PNGs haven't been tested.
 

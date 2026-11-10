@@ -39,7 +39,7 @@ function call(cmd, args = {}) {
 // Model storage: remember which files each model needs, so we can tell
 // whether it is fully stored on this device.
 
-const manifestKey = (m) => `pf-manifest-${m}`;
+const manifestKey = (m) => `aid-manifest-${m}`;
 const fileUrls = { florence: new Set(), qwen: new Set() };
 const readManifest = (m) => {
   try { return JSON.parse(localStorage.getItem(manifestKey(m)) ?? "[]"); } catch { return []; }
