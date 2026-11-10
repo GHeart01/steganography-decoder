@@ -63,8 +63,26 @@ h2 { font-size: 17px; margin: 0 0 12px; }
 .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .drop-main { font-weight: 600; }
 .drop-sub { color: var(--muted); font-size: 13px; }
-.row-actions { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.demo-label { color: var(--muted); font-size: 14px; margin-right: 4px; }
+.demos { margin-top: 16px; }
+.demo-label { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
+.demo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.demo-card {
+  display: flex; flex-direction: column; align-items: stretch; gap: 2px;
+  padding: 0 0 10px; text-align: left; overflow: hidden;
+  background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 10px;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+.demo-card img, .demo-card canvas {
+  width: 100%; aspect-ratio: 16 / 9; height: auto; object-fit: cover; display: block; margin-bottom: 6px;
+  background: var(--line);
+}
+.demo-card .demo-title { font-weight: 600; font-size: 14px; padding: 0 10px; }
+.demo-card .demo-sub { color: var(--muted); font-size: 12px; line-height: 1.35; padding: 0 10px; }
+.demo-card:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-1px); box-shadow: 0 4px 14px rgb(0 0 0 / 0.12); }
+.demo-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.demo-card[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.demo-card:disabled { opacity: 0.55; }
+@media (prefers-reduced-motion: reduce) { .demo-card { transition: none; } .demo-card:hover:not(:disabled) { transform: none; } }
 
 button {
   font: inherit; cursor: pointer; border-radius: 8px; padding: 8px 14px;

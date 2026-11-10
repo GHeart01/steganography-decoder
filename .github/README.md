@@ -4,11 +4,11 @@ Find text, watermarks, colour patterns and hidden data in an image, with AI mode
 
 **[▶ Try the live demo on Hugging Face Spaces](https://huggingface.co/spaces/GHeart01/ai-image-decoder)**
 
-![AI Image Decoder after analysing the neon waves image: content credentials say it was made with AI and record an invisible watermark](screenshot.jpg)
+![AI Image Decoder with its demo picker (alpine lake, neon waves, ribbons and harbour previews) after analysing the neon waves image](screenshot.jpg)
 
 ## Real demo: two ChatGPT images
 
-These two images were generated with ChatGPT. Both are one-click demos in the app, and everything below is the app's actual output.
+These two images were generated with ChatGPT. Both are in the app's demo picker (click a preview to analyse it), and everything below is the app's actual output.
 
 <p>
   <img src="../demo/alpine-lake-chatgpt.png" width="49%" alt="ChatGPT-generated alpine lake at sunset">
@@ -60,9 +60,9 @@ Removing colour and equalising brightness shows the structure of the line field,
 | **Colour** | Palette with plain colour names, saturation, histogram gaps, lowest-bit colour twins | none |
 | **Resizing** | Compares an averaged and a point-sampled shrink to catch image-scaling attacks | none |
 | **Text** | OCR on 768 px tiles of three views (normal, high saturation, low saturation). Text that only appears in an enhanced view is flagged | [Florence-2-base](https://huggingface.co/onnx-community/Florence-2-base-ft), ~360 MB |
-| **Interpretation** | Gets the image shrunk to ~1 megapixel, a saturated copy, close-ups of flagged regions and all findings, and writes a short report | [Qwen3-VL-2B-Instruct](https://huggingface.co/onnx-community/Qwen3-VL-2B-Instruct-ONNX), ~1.4 GB |
+| **Interpretation** | Gets the image shrunk to ~0.5 megapixel, a saturated copy, close-ups of flagged regions and all findings, and writes a short report under six headings | [Qwen3-VL-2B-Instruct](https://huggingface.co/onnx-community/Qwen3-VL-2B-Instruct-ONNX), ~1.4 GB |
 
-The pixel and file checks finish in about a second. With the models stored, a full 1920×1080 analysis takes 45–70 seconds on a laptop GPU.
+The pixel and file checks finish in under a second. Once the models are stored, they load in the background when the page opens, and a full 1920×1080 analysis takes about 25 seconds on an idle Apple Silicon laptop (closer to 45–50 seconds when the machine is busy).
 
 ## Quick start
 
@@ -80,7 +80,7 @@ Open <http://localhost:8000> and click a demo. Text reading and AI interpretatio
 
 1. **Exact pixels.** PNGs are decoded in JavaScript, so pixel values are exact. Browser (canvas) decoding can be altered by colour management and by anti-fingerprinting noise, which would destroy lowest-bit evidence. The app tests for that noise and warns when it's present.
 2. **File and pixel checks** run on the main thread in [`lib/`](../lib): [`metadata.js`](../lib/metadata.js) for the file structure and C2PA, [`forensics.js`](../lib/forensics.js) for the lowest bits, frequency, colour and resizing, and [`views.js`](../lib/views.js) for the saturation views.
-3. **The models run in a Web Worker** ([`worker.js`](../worker.js)) with [Transformers.js](https://huggingface.co/docs/transformers.js) on WebGPU. Only one model is in memory at a time, because integrated GPUs share system RAM.
+3. **The models run in a Web Worker** ([`worker.js`](../worker.js)) with [Transformers.js](https://huggingface.co/docs/transformers.js) on WebGPU. With 8 GB or more of memory both stay loaded between images, and Qwen loads while OCR runs; on smaller machines only one is kept at a time, because integrated GPUs share system RAM.
 4. **Text reading** cuts each view into overlapping 768 px tiles (Florence-2's input size) and merges the reads ([`pipeline.js`](../lib/pipeline.js)). Reads at the same place are combined even when tiles or views spell them differently.
 5. **Interpretation** sends Qwen3-VL several pictures plus the findings. Text taken from the image or file goes inside a delimited data block that the model is told never to follow, and `<` and `>` are stripped so that text can't close the block early.
 

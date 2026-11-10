@@ -9,5 +9,7 @@
   [c2pa-rs](https://github.com/contentauth/c2pa-rs) test fixtures (`CA.jpg`),
   © Adobe and C2PA contributors, licensed MIT / Apache-2.0.
 
-The "sample with hidden content" image is generated in the browser by
+`thumbs/` holds 480 px previews for the demo picker.
+
+The "Harbour" sample with planted hidden content is generated in the browser by
 [`lib/sample.js`](../lib/sample.js), so it isn't stored here.

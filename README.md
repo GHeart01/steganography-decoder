@@ -31,7 +31,7 @@ Safari 26+).
 | Colour | Palette (k-means), saturation, histogram gaps, lowest-bit colour twins | none |
 | Resizing | Averaged vs point-sampled shrink, to catch image-scaling attacks | none |
 | Text | OCR on 768 px tiles of three views: normal, high saturation, low saturation. Text seen only in an enhanced view is flagged | Florence-2-base (~360 MB) |
-| Interpretation | The downscaled image (~1 MP), a saturated view and close-ups of flagged regions, plus all findings | Qwen3-VL-2B-Instruct (~1.4 GB) |
+| Interpretation | The downscaled image (~0.5 MP), a saturated view and close-ups of flagged regions, plus all findings | Qwen3-VL-2B-Instruct (~1.4 GB) |
 
 PNG files are decoded in JavaScript so pixel values are exact. Browser
 (canvas) decoding can be altered by colour management and anti-fingerprinting

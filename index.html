@@ -22,12 +22,30 @@
         <span class="drop-main">Drop an image here or click to choose one</span>
         <span class="drop-sub">PNG keeps hidden data intact. JPEG and WebP compression destroy most of it.</span>
       </label>
-      <div class="row-actions">
-        <span class="demo-label">Or try a demo:</span>
-        <button type="button" class="secondary" id="sample">Planted hidden content</button>
-        <button type="button" class="secondary demo" data-src="demo/alpine-lake-chatgpt.png">ChatGPT image: alpine lake</button>
-        <button type="button" class="secondary demo" data-src="demo/neon-waves-chatgpt.png">ChatGPT image: neon waves</button>
-        <button type="button" class="secondary demo" data-src="demo/ribbons-c2pa.jpg">Edited photo with credentials</button>
+      <div class="demos">
+        <p class="demo-label" id="demo-label">Or try a demo image:</p>
+        <div class="demo-grid" role="group" aria-labelledby="demo-label">
+          <button type="button" class="demo-card demo" data-src="demo/alpine-lake-chatgpt.png">
+            <img src="demo/thumbs/alpine-lake-chatgpt.jpg" alt="" width="480" height="270" />
+            <span class="demo-title">Alpine lake</span>
+            <span class="demo-sub">ChatGPT image with content credentials</span>
+          </button>
+          <button type="button" class="demo-card demo" data-src="demo/neon-waves-chatgpt.png">
+            <img src="demo/thumbs/neon-waves-chatgpt.jpg" alt="" width="480" height="270" />
+            <span class="demo-title">Neon waves</span>
+            <span class="demo-sub">ChatGPT image with content credentials</span>
+          </button>
+          <button type="button" class="demo-card demo" data-src="demo/ribbons-c2pa.jpg">
+            <img src="demo/thumbs/ribbons-c2pa.jpg" alt="" width="480" height="320" />
+            <span class="demo-title">Ribbons</span>
+            <span class="demo-sub">Real photo with an edit history</span>
+          </button>
+          <button type="button" class="demo-card" id="sample">
+            <canvas id="sample-preview" width="480" height="270" aria-hidden="true"></canvas>
+            <span class="demo-title">Harbour</span>
+            <span class="demo-sub">Hidden message, attached file, faint watermark</span>
+          </button>
+        </div>
       </div>
 
       <div class="options">

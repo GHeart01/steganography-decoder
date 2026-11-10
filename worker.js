@@ -1,6 +1,7 @@
 // Runs the two models off the main thread so the page stays responsive.
-// Only one model is kept in memory at a time: integrated GPUs share system
-// RAM, and Florence-2 plus Qwen3-VL together is a lot.
+// With 8 GB+ of memory both models stay loaded between images (reloading
+// costs ~5 s); on smaller machines only one is kept at a time, because
+// integrated GPUs share system RAM.
 import {
   env, AutoProcessor, Florence2ForConditionalGeneration, Qwen3VLForConditionalGeneration,
   RawImage, TextStreamer, cat,
@@ -13,10 +14,13 @@ const MODELS = {
 };
 
 let device = "wasm";
-let current = null; // { name, model, processor }
+const loaded = new Map();  // name -> { name, model, processor }
+const loading = new Map(); // name -> Promise, so concurrent requests share one load
+const keepBoth = (navigator.deviceMemory ?? 8) >= 8;
 let stopRequested = false;
 
 const post = (msg) => self.postMessage(msg);
+const timing = (label, started, extra = {}) => post({ type: "timing", label, ms: Math.round(performance.now() - started), ...extra });
 
 async function setup() {
   if (await OPFSCache.available()) {
@@ -32,7 +36,7 @@ async function setup() {
       f16 = adapter.features.has("shader-f16");
     }
   } catch {}
-  return { device, f16 };
+  return { device, f16, keepBoth };
 }
 
 function progress(name) {
@@ -48,13 +52,27 @@ function progress(name) {
   };
 }
 
-async function load(name, f16) {
-  if (current?.name === name) return current;
-  if (current) {
-    await current.model.dispose();
-    current = null;
+async function unloadAll(except) {
+  for (const [name, entry] of loaded) {
+    if (name === except) continue;
+    loaded.delete(name);
+    await entry.model.dispose();
   }
+}
+
+function load(name, f16) {
+  if (loaded.has(name)) return Promise.resolve(loaded.get(name));
+  if (!loading.has(name)) {
+    const p = doLoad(name, f16).finally(() => loading.delete(name));
+    loading.set(name, p);
+  }
+  return loading.get(name);
+}
+
+async function doLoad(name, f16) {
+  if (!keepBoth) await unloadAll(name);
   post({ type: "status", model: name, status: "loading" });
+  const loadStart = performance.now();
   const id = MODELS[name];
   const progress_callback = progress(name);
   let model;
@@ -71,21 +89,25 @@ async function load(name, f16) {
     model = await Qwen3VLForConditionalGeneration.from_pretrained(id, { device, dtype, progress_callback });
   }
   const processor = await AutoProcessor.from_pretrained(id, { progress_callback });
-  current = { name, model, processor };
+  const entry = { name, model, processor };
+  loaded.set(name, entry);
+  timing(`load ${name}`, loadStart);
   post({ type: "status", model: name, status: "ready" });
-  return current;
+  return entry;
 }
 
 const toRaw = (img) => new RawImage(new Uint8ClampedArray(img.data), img.width, img.height, 4).rgb();
 
-// Florence-2: OCR with positions on each tile.
+// Florence-2: OCR with positions on each tile, one tile per call. Batching
+// tiles was tried and measured ~2.5× slower in Transformers.js 4.3.2: the
+// whole batch keeps decoding until its longest tile finishes.
 async function florence({ tiles, f16 }) {
   const { model, processor } = await load("florence", f16);
   const task = "<OCR_WITH_REGION>";
   const prompts = processor.construct_prompts(task);
   const results = [];
-  for (let i = 0; i < tiles.length; i++) {
-    if (stopRequested) break;
+  const ocrStart = performance.now();
+  for (let i = 0; i < tiles.length && !stopRequested; i++) {
     const t = tiles[i];
     const image = toRaw(t.image);
     const inputs = await processor(image, prompts);
@@ -95,6 +117,7 @@ async function florence({ tiles, f16 }) {
     results.push({ id: t.id, labels: out.labels, quads: out.quad_boxes });
     post({ type: "tile", done: i + 1, total: tiles.length });
   }
+  timing("ocr", ocrStart, { tiles: tiles.length });
   return results;
 }
 
@@ -103,6 +126,7 @@ async function florence({ tiles, f16 }) {
 // is preprocessed separately and the results concatenated.
 async function qwen({ images, system, prompt, maxNewTokens, f16 }) {
   const { model, processor } = await load("qwen", f16);
+  const prepStart = performance.now();
   const per = [];
   for (const img of images) per.push(await processor.image_processor(toRaw(img)));
   const pixel_values = cat(per.map((x) => x.pixel_values), 0);
@@ -121,15 +145,18 @@ async function qwen({ images, system, prompt, maxNewTokens, f16 }) {
     return "<|placeholder|>".repeat((t * h * w) / merge);
   }).replaceAll("<|placeholder|>", "<|image_pad|>");
   const inputs = { ...processor.tokenizer(text), pixel_values, image_grid_thw };
+  timing("qwen prepare", prepStart);
 
   // Small models can loop ("- The text X is…" forever). Stop when the same
   // line has come out three times.
-  let partial = "", looping = false;
+  let partial = "", looping = false, firstToken = 0, tokens = 0;
   const lineCounts = new Map();
   const streamer = new TextStreamer(processor.tokenizer, {
     skip_prompt: true,
     skip_special_tokens: true,
     callback_function: (t) => {
+      if (!firstToken) firstToken = performance.now();
+      tokens++;
       post({ type: "token", text: t });
       partial += t;
       const parts = partial.split("\n");
@@ -158,6 +185,9 @@ async function qwen({ images, system, prompt, maxNewTokens, f16 }) {
     stopping_criteria: [() => [stopRequested || looping]],
   });
   const n = inputs.input_ids.dims.at(-1);
+  const genEnd = performance.now();
+  post({ type: "timing", label: "qwen first token", ms: Math.round((firstToken || genEnd) - started), promptTokens: n });
+  post({ type: "timing", label: "qwen decode", ms: Math.round(genEnd - firstToken), chunks: tokens });
   let answer = processor.batch_decode(out.slice(null, [n, null]), { skip_special_tokens: true })[0];
   // Drop repeated lines left over from a loop.
   const seenLines = new Set();
@@ -180,7 +210,13 @@ self.onmessage = async ({ data }) => {
     if (cmd === "caps") return post({ id, result: caps });
     if (cmd === "stop") { stopRequested = true; return post({ id, result: true }); }
     if (cmd === "unload") {
-      if (current) { await current.model.dispose(); current = null; }
+      await unloadAll();
+      return post({ id, result: true });
+    }
+    if (cmd === "preload") {
+      // Warm-up only; never interrupts or replaces a model that's in use.
+      if (!keepBoth && loaded.size) return post({ id, result: false });
+      await load(args.name, caps.f16);
       return post({ id, result: true });
     }
     const fn = { florence, qwen }[cmd];

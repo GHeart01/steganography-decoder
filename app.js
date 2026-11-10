@@ -4,7 +4,7 @@ import { analyzeLsb, analyzeSpectrum, analyzeColor, scalingAttackCheck, lsbPlane
 import { makeViews, VIEW_INFO } from "./lib/views.js";
 import { makeTiles, mergeOcr, ocrFindings, buildVlmInputs, buildPrompt } from "./lib/pipeline.js";
 import { cacheStatus, clearCache } from "./lib/opfs-cache.js";
-import { makeSample } from "./lib/sample.js";
+import { makeSample, drawSamplePreview } from "./lib/sample.js";
 
 const $ = (id) => document.getElementById(id);
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -99,7 +99,9 @@ function bar(fraction, text) {
   $("bar-text").textContent = text ?? "";
 }
 
+window.__timings = [];
 listeners.add((m) => {
+  if (m.type === "timing") { window.__timings.push(m); console.debug("timing", m); }
   if (m.type === "file" && fileUrls[m.model]) fileUrls[m.model].add(`https://huggingface.co/${m.repo}/resolve/main/${m.file}`);
   if (m.type === "progress") {
     const mb = `${(m.loaded / 1e6).toFixed(0)} / ${(m.total / 1e6).toFixed(0)} MB`;
@@ -241,6 +243,7 @@ function renderFile(file, decoded, meta) {
 
 let running = false;
 let stopped = false;
+let caps = null;
 const setInputs = (on) => {
   for (const b of [$("file"), $("sample"), ...document.querySelectorAll("button.demo")]) b.disabled = !on;
 };
@@ -268,17 +271,23 @@ async function analyze(file) {
   const findings = [];
 
   try {
+    window.__timings = [];
+    const T0 = performance.now();
+    const mark = (label, since) => window.__timings.push({ label, ms: Math.round(performance.now() - since) });
     step(S.read, "active");
+    let t = performance.now();
     const decoded = await decodeImage(file);
+    mark("decode", t);
     const { img } = decoded;
     step(S.read, "done");
 
     currentStep = S.file; step(S.file, "active"); await tick();
     const meta = await analyzeContainer(decoded.bytes);
-    findings.push(...meta.findings.map((f) => ({ ...f, layer: f.severity === "info" ? "file" : "hidden" })));
+    findings.push(...meta.findings.map((f) => ({ ...f, layer: f.layer ?? (f.severity === "info" ? "file" : "hidden") })));
     step(S.file, "done");
 
     currentStep = S.pixels; step(S.pixels, "active"); await tick();
+    t = performance.now();
     const lossy = !decoded.exact;
     const lsb = analyzeLsb(img, { lossy });
     await tick();
@@ -293,6 +302,7 @@ async function analyze(file) {
       ...spectrum.findings, ...scaling.findings,
     );
     const views = makeViews(img);
+    mark("pixel checks + views", t);
     step(S.pixels, "done");
 
     state = {
@@ -318,6 +328,9 @@ async function analyze(file) {
     $("text-card").hidden = !useOcr;
     $("results").hidden = false;
 
+    // Load Qwen while OCR runs instead of afterwards (when both fit in memory).
+    if (useVlm && useOcr && caps?.keepBoth) call("preload", { name: "qwen" }).catch(() => {});
+
     if (useOcr) {
       currentStep = S.ocr; step(S.ocr, "active");
       $("stop").hidden = false;
@@ -342,14 +355,16 @@ async function analyze(file) {
       const { system, prompt } = buildPrompt({ captions, findings, texts: state.texts, color, meta });
       $("ai-images").replaceChildren(...images.map((im) => toCanvas(im)));
       $("ai-prompt").textContent = prompt;
-      const res = await call("qwen", { images, system, prompt, maxNewTokens: 900 });
+      const res = await call("qwen", { images, system, prompt, maxNewTokens: 450 });
       $("ai").textContent = res.text.trim();
+      $("ai").dataset.looped = res.looped ? "1" : "";
       step(S.vlm, stopped ? "failed" : "done");
-      bar(null, stopped
-        ? "Stopped. The interpretation above is incomplete."
-        : `Interpreted ${res.promptTokens.toLocaleString()} input tokens in ${res.seconds.toFixed(0)} s.${res.looped ? " (Stopped early: the model started repeating itself.)" : ""}`);
-    } else {
-      bar(null, "");
+      if (stopped) bar(null, "Stopped. The interpretation above is incomplete.");
+    }
+    mark("total", T0);
+    if (!stopped) {
+      const secs = (performance.now() - T0) / 1000;
+      bar(null, `Done in ${secs < 10 ? secs.toFixed(1) : Math.round(secs)} s.${useVlm && $("ai").dataset.looped ? " The AI stopped early because it started repeating itself." : ""}`);
     }
   } catch (err) {
     console.error(err);
@@ -368,6 +383,7 @@ async function analyze(file) {
 
 $("file").addEventListener("change", (e) => {
   const f = e.target.files[0];
+  if (f) markDemo(null);
   if (f) analyze(f);
   e.target.value = "";
 });
@@ -378,12 +394,19 @@ drop.addEventListener("drop", (e) => {
   e.preventDefault();
   drop.classList.remove("over");
   const f = e.dataTransfer.files[0];
-  if (f) analyze(f);
+  if (f) { markDemo(null); analyze(f); }
 });
-$("sample").addEventListener("click", () => analyze(makeSample()));
+// Mark which demo is being analysed (cleared when a file is chosen instead).
+function markDemo(card) {
+  for (const c of document.querySelectorAll(".demo-card")) c.setAttribute("aria-pressed", String(c === card));
+}
+drawSamplePreview($("sample-preview"));
+$("sample").addEventListener("click", () => { markDemo($("sample")); analyze(makeSample()); });
 // Real demo images in demo/ (see demo/README.md for where they come from).
 for (const b of document.querySelectorAll("button.demo")) {
   b.addEventListener("click", async () => {
+    if (running) return;
+    markDemo(b);
     const blob = await (await fetch(new URL(b.dataset.src, import.meta.url))).blob();
     analyze(new File([blob], b.dataset.src.split("/").pop(), { type: blob.type }));
   });
@@ -395,9 +418,26 @@ $("stop").addEventListener("click", () => {
   call("stop");
 });
 
+// If the models are already stored on this device, load them in the
+// background so the first analysis doesn't wait for them. Nothing is
+// downloaded here: only stored models are warmed up.
+async function warmUp() {
+  for (const m of ["florence", "qwen"]) {
+    if (running) return; // an analysis loads what it needs itself
+    if (!storedModels.has(m)) continue;
+    if (m === "florence" && !$("use-ocr").checked) continue;
+    if (m === "qwen" && (!$("use-vlm").checked || $("use-vlm").disabled)) continue;
+    if (!caps?.keepBoth && m === "qwen") continue;
+    $("caps").dataset.base ??= $("caps").textContent;
+    $("caps").textContent = `${$("caps").dataset.base} Getting ${MODEL_NAMES[m]} ready…`;
+    try { await call("preload", { name: m }); } catch {}
+  }
+  if ($("caps").dataset.base) $("caps").textContent = `${$("caps").dataset.base} Models ready.`;
+}
+
 (async () => {
   try {
-    const caps = await call("caps");
+    caps = await call("caps");
     if (caps.device === "webgpu") {
       $("caps").textContent = caps.f16
         ? "Your browser supports WebGPU, so the models run on your graphics chip."
@@ -411,5 +451,6 @@ $("stop").addEventListener("click", () => {
   } catch (err) {
     $("caps").textContent = `Couldn't start the model worker: ${err.message ?? err}`;
   }
-  showStorage();
+  await showStorage();
+  warmUp();
 })();
