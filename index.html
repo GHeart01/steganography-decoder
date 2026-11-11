@@ -71,7 +71,7 @@
         </label>
         <label class="option">
           <span class="option-text">
-            <span class="option-title">Interpret with AI</span>
+            <span class="option-title">AI steganalysis</span>
             <span class="option-sub">Qwen3-VL-2B · about 1.4 GB · downloaded once · needs WebGPU</span>
           </span>
           <input type="checkbox" class="switch" role="switch" id="use-vlm" />
@@ -100,8 +100,8 @@
       </section>
 
       <section class="card" id="ai-card" hidden>
-        <h2>AI interpretation</h2>
-        <p class="hint">Written by Qwen3-VL-2B from the pictures and the findings above. It can be wrong; the findings are the evidence.</p>
+        <h2>AI steganalysis</h2>
+        <p class="hint">Qwen3-VL-2B judges whether something is hidden, how, what it means and what to try next, from the bit plane, the picture and the decoder results. It can be wrong; the findings are the evidence.</p>
         <div class="ai" id="ai"></div>
         <details class="sent">
           <summary>What the AI was shown</summary>

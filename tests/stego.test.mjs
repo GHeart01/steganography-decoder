@@ -6,7 +6,7 @@ import fs from "node:fs";
 import { encode, decode } from "fast-png";
 import {
   extractBits, scanLsb, scanConfigs, normalizeCfg, decodeLayers, cleanMessage, carveFile, fileTypeAt,
-  bitPlaneView, colourMapView, hexDump, describeCfg, cfgCode,
+  bitPlaneView, colourMapView, hexDump, describeCfg, cfgCode, hitPayload,
 } from "../lib/stego.js";
 import { analyzeLsb } from "../lib/forensics.js";
 
@@ -81,7 +81,7 @@ test("real tool: a Base64 message hidden by Stegano is decoded", () => {
   const [hit] = scanLsb(loadPng("./fixtures/stegano-base64.png"));
   assert.equal(hit.decoded.at(-1).text, "Encoded twice: look under the bench.");
   const titles = analyzeLsb(loadPng("./fixtures/stegano-base64.png")).findings.map((f) => f.title);
-  assert.ok(titles.includes("The hidden text is Base64: it decodes to readable text"), titles.join(" | "));
+  assert.ok(titles.includes("The hidden text decodes (Base64) to readable text"), titles.join(" | "));
 });
 
 test("finds messages in less common orderings", () => {
@@ -166,4 +166,45 @@ test("bit plane and colour map pictures", () => {
   const map = colourMapView(near).data;
   assert.notDeepEqual([...map.slice(0, 3)], [...map.slice(4, 7)]);
   assert.match(hexDump(text("Hi\x00")), /^000000  48 69 00 +Hi·$/);
+});
+
+test("a message longer than the scan window is read in full, Stegano prefix stripped", () => {
+  const body = "Long message. ".repeat(400).trim(); // ~5.6 KB, past the 4 KB scan window
+  const img = embedBits(photo(6), text(`${body.length}:${body}`), { channels: "RGB" });
+  const [hit] = scanLsb(img);
+  assert.equal(hit.message, body);
+  assert.equal(hitPayload(img, hit).text, body);
+});
+
+test("length-prefixed text and files: payload starts after the prefix", () => {
+  const be = (n) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+  const note = "Prefixed text payload for checking offsets.";
+  const t = embedBits(photo(8), new Uint8Array([...be(note.length), ...text(note), 0x41, 0x42]), { channels: "RGB" });
+  const [th] = scanLsb(t);
+  assert.equal(th.offset, 4);
+  assert.equal(hitPayload(t, th).text, note);
+
+  const tiny = encode({ width: 3, height: 3, data: new Uint8Array(36).fill(90), channels: 4 });
+  const f = embedBits(photo(9), new Uint8Array([...be(tiny.length), ...tiny]), { channels: "RGB" });
+  const [fh] = scanLsb(f);
+  assert.equal(fh.kind, "file");
+  assert.equal(fh.offset, 4);
+  const p = hitPayload(f, fh);
+  assert.deepEqual([...p.bytes], [...tiny]);
+});
+
+test("decodeLayers: ROT13 and Caesar ciphers are broken; English and noise are left alone", () => {
+  const rot13 = (t) => t.replace(/[a-z]/gi, (c) => { const a = c <= "Z" ? 65 : 97; return String.fromCharCode(((c.charCodeAt(0) - a + 13) % 26) + a); });
+  const r = decodeLayers(rot13("The key is under the third stone from the lighthouse."));
+  assert.equal(r[0].encoding, "ROT13");
+  assert.equal(r[0].text, "The key is under the third stone from the lighthouse.");
+  const caesar3 = "Wkh phhwlqj lv dw wkh rog ploo diwhu gdun."; // shift 3
+  const c = decodeLayers(caesar3);
+  assert.equal(c[0].encoding, "a Caesar shift of 3");
+  assert.equal(c[0].text, "The meeting is at the old mill after dark.");
+  // Base64 of ROT13 text: two layers.
+  const two = decodeLayers(Buffer.from(rot13("Meet me at the north gate at noon")).toString("base64"));
+  assert.deepEqual(two.map((l) => l.encoding), ["Base64", "ROT13"]);
+  assert.deepEqual(decodeLayers("Meet at noon by the lighthouse"), []);
+  assert.deepEqual(decodeLayers("Xq7 Lmp Wrt Bzzk Qqf"), []);
 });

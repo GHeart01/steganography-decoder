@@ -7,7 +7,7 @@ import { cacheStatus, clearCache } from "./lib/opfs-cache.js";
 import { makeSample, drawSamplePreview } from "./lib/sample.js";
 import {
   extractBits, capacity, fileTypeAt, carveFile, looksLikeText, printableRun, asLatin1, decodeLayers,
-  bitPlaneView, colourMapView, hexDump, describeCfg, cfgCode, normalizeCfg, scanConfigs, CHANNEL_SETS,
+  bitPlaneView, colourMapView, hexDump, describeCfg, cfgCode, normalizeCfg, scanConfigs, CHANNEL_SETS, hitPayload,
 } from "./lib/stego.js";
 
 const $ = (id) => document.getElementById(id);
@@ -120,7 +120,7 @@ let ocrProgress = null;  // { done, total } while text is being read
 let phaseText = "";      // what the current step is doing, when nothing is loading
 let vlmActive = false;   // the interpretation step has started
 const readyModels = new Set();
-const WRITING = "Qwen3-VL-2B is writing its interpretation…";
+const WRITING = "Qwen3-VL-2B is writing its steganalysis…";
 const mb = (b) => Math.round(b / 1e6).toLocaleString();
 
 function loadText(m, l) {
@@ -199,6 +199,29 @@ function toCanvas(img, canvas = document.createElement("canvas")) {
   canvas.height = img.height;
   canvas.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(img.data), img.width, img.height), 0, 0);
   return canvas;
+}
+
+
+// Lay out the report: the five headings as headings, everything else as
+// bullets. The model sometimes writes "- Verdict: text" on one line.
+const AI_HEADINGS = ["Verdict", "Recovered payloads", "Hiding technique", "What it means", "Next steps"];
+function renderAi(text) {
+  const box = $("ai");
+  box.replaceChildren();
+  box.dataset.raw = text;
+  for (let line of text.split("\n")) {
+    line = line.trim();
+    if (!line) continue;
+    const bare = line.replace(/^[-*•]\s*/, "").replace(/^\d\.\s*/, "").replace(/^\*\*|\*\*$/g, "");
+    const h = AI_HEADINGS.find((x) => bare.toLowerCase().startsWith(x.toLowerCase()));
+    if (h) {
+      box.append(el("p", "ai-h", h));
+      const rest = bare.slice(h.length).replace(/^[\s:*–-]+/, "");
+      if (rest) box.append(el("p", "ai-b", rest));
+    } else {
+      box.append(el("p", "ai-b", line.replace(/^[-*•]\s*/, "")));
+    }
+  }
 }
 
 let state = null;
@@ -328,7 +351,7 @@ function segButtons(id, items, isOn, onPick, multi = false) {
     const b = el("button", "", label);
     b.type = "button";
     b.setAttribute("role", multi ? "checkbox" : "radio");
-    b.setAttribute(multi ? "aria-pressed" : "aria-checked", String(isOn(value)));
+    b.setAttribute("aria-checked", String(isOn(value)));
     b.addEventListener("click", () => onPick(value));
     return b;
   }));
@@ -366,35 +389,51 @@ function describeBytes(bytes) {
   return { text: "No readable text or known file at the start. Untouched bits look like this: noise or the picture's own texture." };
 }
 
+function hitSummary(hit) {
+  const at = hit.offset ? ` It starts at byte ${hit.offset}${hit.framing ? ` (${hit.framing})` : ""}.` : hit.framing ? ` Framing: ${hit.framing}.` : "";
+  if (hit.kind === "file") return `A hidden ${hit.label}.${at}`;
+  const last = hit.decoded?.at(-1);
+  const chain = hit.decoded?.map((l) => l.encoding).join(", then ");
+  return `Hidden text, ${hit.message.length.toLocaleString()} characters.${at}${last ? ` Decoded (${chain}): ${last.file ? `a ${last.file.label}` : `“${last.text.slice(0, 160)}”`}` : ""}`;
+}
+
 function renderDecoder() {
   const { img, cfg } = dec;
   for (const [i, li] of [...$("hits").children].entries()) li.setAttribute("aria-current", String(i === dec.current));
   renderDecoderControls();
   toCanvas(bitPlaneView(img, cfg), $("plane"));
-  const head = extractBits(img, cfg, 512);
+  const hit = dec.current != null ? dec.hits[dec.current] : null;
+  // Dump from where the hit starts, so the bytes shown are the ones described.
+  const start = hit?.offset ?? 0;
+  const head = extractBits(img, cfg, start + 512).subarray(start);
   const cap = capacity(img, cfg);
-  const { text } = describeBytes(head);
-  $("dec-summary").textContent = `${describeCfg(cfg)}. ${text}`;
-  $("dump").textContent = hexDump(head);
+  $("dec-summary").textContent = `${describeCfg(cfg)}. ${hit ? hitSummary(hit) : describeBytes(head).text}`;
+  $("dump").textContent = hexDump(head, 32, start);
   $("dec-save-info").textContent = `Up to ${kb(cap)} fit in these bits.`;
 }
 
 $("dec-save").addEventListener("click", () => {
+  const hit = dec.current != null ? dec.hits[dec.current] : null;
+  const name = `hidden-${cfgCode(dec.cfg)}`;
+  if (hit) {
+    const p = hitPayload(dec.img, hit);
+    if (p.kind === "file") {
+      saveBytes(p.bytes, `${name}.${p.file.ext}`, p.file.type);
+      $("dec-save-info").textContent = p.exact
+        ? `Saved the ${p.encoded ? "decoded " : ""}${p.file.label} (${kb(p.bytes.length)}).`
+        : `Saved ${kb(p.bytes.length)}: the ${p.file.label}'s end couldn't be found, so trailing bytes are included.`;
+    } else {
+      saveBytes(p.bytes, `${name}.txt`, "text/plain");
+      $("dec-save-info").textContent = `Saved the message as text (${kb(p.bytes.length)}).`;
+    }
+    return;
+  }
   const all = extractBits(dec.img, dec.cfg);
   const file = fileTypeAt(all);
-  const hit = dec.current != null ? dec.hits[dec.current] : null;
   if (file) {
     const { bytes, exact } = carveFile(all, file);
-    saveBytes(bytes, `hidden-${cfgCode(dec.cfg)}.${file.ext}`, file.type);
+    saveBytes(bytes, `${name}.${file.ext}`, file.type);
     $("dec-save-info").textContent = exact ? `Saved the ${file.label} (${kb(bytes.length)}).` : `Saved ${kb(bytes.length)}: the ${file.label}'s end couldn't be found, so trailing bytes are included.`;
-  } else if (hit?.decoded?.at(-1)?.file) {
-    const last = hit.decoded.at(-1);
-    const { bytes } = carveFile(last.bytes, last.file);
-    saveBytes(bytes, `hidden-${cfgCode(dec.cfg)}.${last.file.ext}`, last.file.type);
-    $("dec-save-info").textContent = `Saved the decoded ${last.file.label} (${kb(bytes.length)}).`;
-  } else if (hit?.kind === "text") {
-    saveBytes(new TextEncoder().encode(hit.message), `hidden-${cfgCode(dec.cfg)}.txt`, "text/plain");
-    $("dec-save-info").textContent = "Saved the message as text.";
   } else {
     saveBytes(all, `bits-${cfgCode(dec.cfg)}.bin`);
     $("dec-save-info").textContent = `Saved all ${kb(all.length)}.`;
@@ -467,7 +506,7 @@ async function analyze(file) {
     file: "Check the file structure",
     pixels: "Check pixels, colours and patterns",
     ocr: "Read text and look for corner logos",
-    vlm: "Interpret with Qwen3-VL-2B",
+    vlm: "Steganalysis with Qwen3-VL-2B",
   };
   setSteps([S.read, S.file, S.pixels, ...(useOcr ? [S.ocr] : []), ...(useVlm ? [S.vlm] : [])]);
   $("results").hidden = true;
@@ -604,8 +643,25 @@ async function analyze(file) {
       currentStep = S.vlm; step(S.vlm, "active");
       $("stop").hidden = false;
       $("ai-card").hidden = false;
-      const { images, captions } = buildVlmInputs(views, state.texts, state.marks, strip);
-      const { system, prompt } = buildPrompt({ captions, findings, texts: state.texts, color, meta });
+      const { images, captions } = buildVlmInputs(views, state.texts, state.marks, strip, state.viewList.find((v) => v.key === "lsb").img);
+      const payloads = [];
+      for (const m of lsb.messages) {
+        const last = m.decoded?.at(-1);
+        if (m.kind === "file") payloads.push({ where: m.order, text: `a ${m.label}` });
+        else payloads.push({ where: m.order, text: last ? `${m.preview.slice(0, 60)}… which decodes (${m.decoded.map((l) => l.encoding).join(", then ")}) to: ${last.text ?? `a ${last.file.label}`}` : m.message });
+      }
+      if (meta.trailing) payloads.push({ where: `data appended after the end of the image${meta.trailing.embedded ? ` (${meta.trailing.embedded})` : ""}`, text: meta.trailing.strings.join(" ") || `${meta.trailing.length} bytes` });
+      if (state.faintText) payloads.push({ where: "near-invisible shapes in flat colour, read in order", text: state.faintText });
+      const techniques = [];
+      for (const m of lsb.messages) techniques.push(`LSB replacement: ${m.kind === "file" ? "a file" : "text"} in ${[...m.cfg.channels].join(",")} bit ${m.cfg.bits.join("+")}, ${m.cfg.order === "cols" ? "by columns" : "by rows"}${m.framing ? `, ${m.framing}` : ""}${m.decoded?.length ? `, ${m.decoded.map((l) => l.encoding).join(" + ")}-encoded` : ""}`);
+      if (meta.trailing) techniques.push("a file appended after the image's end marker, which viewers ignore");
+      if (findings.some((f) => /look filled|Noise in the lowest bits/.test(f.title))) techniques.push("statistical signs of data in the lowest bits");
+      if (findings.some((f) => /^Embedded text|generation prompt/.test(f.title))) techniques.push("text stored in the file's metadata");
+      if (state.faint?.length) techniques.push("letters drawn a few shades off a flat background");
+      if (state.texts.some((t) => t.enhancedOnly || t.repeated)) techniques.push("a faint or repeated watermark, visible after enhancement");
+      if (state.marks?.length) techniques.push("a small logo mark in a corner");
+      const stego = { techniques, format: decoded.format.toUpperCase(), lossy: decoded.format === "jpeg" || decoded.format === "webp", tried: scanConfigs(img).length, hits: lsb.messages.length, payloads };
+      const { system, prompt } = buildPrompt({ captions, findings, texts: state.texts, color, meta, stego });
       $("ai-images").replaceChildren(...images.map((im) => toCanvas(im)));
       $("ai-prompt").textContent = prompt;
       vlmActive = true;
@@ -613,10 +669,10 @@ async function analyze(file) {
       // "writing" line follows once it's ready (no flash of the wrong text).
       if (readyModels.has("qwen")) { phaseText = WRITING; renderProgress(); }
       const res = await call("qwen", { images, system, prompt, maxNewTokens: 450 });
-      $("ai").textContent = res.text.trim();
+      renderAi(res.text.trim());
       $("ai").dataset.looped = res.looped ? "1" : "";
       step(S.vlm, stopped ? "failed" : "done");
-      if (stopped) bar(null, "Stopped. The interpretation above is incomplete.");
+      if (stopped) bar(null, "Stopped. The steganalysis above is incomplete.");
     }
     mark("total", T0);
     if (!stopped) {
@@ -701,11 +757,11 @@ async function warmUp() {
     if (caps.device === "webgpu") {
       $("caps").textContent = caps.f16
         ? "Models run on your graphics chip through WebGPU."
-        : "WebGPU is available without 16-bit support: AI interpretation is slower and downloads a little more.";
+        : "WebGPU is available without 16-bit support: AI steganalysis is slower and downloads a little more.";
       $("use-vlm").checked = true;
       setStatus("ready", "WebGPU ready", { idle: true });
     } else {
-      $("caps").textContent = "No WebGPU in this browser: text reading runs on the CPU (slower) and AI interpretation is unavailable. Try Chrome, Edge or Safari 26+.";
+      $("caps").textContent = "No WebGPU in this browser: text reading runs on the CPU (slower) and AI steganalysis is unavailable. Try Chrome, Edge or Safari 26+.";
       setStatus("warn", "No WebGPU", { idle: true });
       $("use-vlm").disabled = true;
       $("ocr-size").textContent = "about 280 MB";

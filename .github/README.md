@@ -45,17 +45,11 @@ Both images below are one-click demos in the app, and everything shown is the ap
 | **Hidden in the picture** | A small, faint logo in the top-right corner (47×34 px) | Seven letters, each only 5–18 shades off its stripe, spelling **REACHES** |
 | **Hidden data in the file** | None | None |
 
-### Colour stripes: findings and AI interpretation
+### Colour stripes: findings and AI steganalysis
 
 The faint-mark check finds seven shapes that differ from their stripe by only a few shades, lines them up in reading order and reads them: **REACHES**.
 
-![Findings for the colour stripes image: 7 faint shapes hidden in flat colour, and the faint shapes spell REACHES, followed by Qwen3-VL-2B's interpretation](stripes-findings.jpg)
-
-### Alpine lake: findings and AI interpretation
-
-The file checks read the credentials, the corner check finds the faint logo, and Qwen3-VL-2B describes the scene and what the credentials mean.
-
-![Findings for the alpine lake image followed by Qwen3-VL-2B's interpretation](alpine-findings.jpg)
+![Findings for the colour stripes image (the faint shapes spell REACHES) followed by Qwen3-VL-2B's steganalysis: verdict, recovered payload, hiding technique, what it means and next steps](stripes-findings.jpg)
 
 ### Alpine lake: high-saturation view
 
@@ -82,7 +76,7 @@ Exaggerating colour differences is how the app exposes marks that blend into the
 | **Resizing** | Compares an averaged and a point-sampled shrink to catch image-scaling attacks | none |
 | **Text** | OCR on 768 px tiles of three views (normal, high saturation, low saturation). Text that only appears in an enhanced view is flagged | [Florence-2-base](https://huggingface.co/onnx-community/Florence-2-base-ft), ~360 MB |
 | **Corner logos** | Each corner is cropped and Florence-2 is asked to locate "logo". With nothing there it returns the whole crop; a small, tight box near the edges is a mark | Florence-2-base |
-| **Interpretation** | Gets the image shrunk to ~0.5 megapixel, a saturated copy, close-ups of flagged regions and all findings, and writes a short report under six headings | [Qwen3-VL-2B-Instruct](https://huggingface.co/onnx-community/Qwen3-VL-2B-Instruct-ONNX), ~1.4 GB |
+| **AI steganalysis** | Gets the image shrunk to ~0.5 megapixel, its lowest-bit plane, close-ups of flagged regions, the recovered payloads, the detected hiding techniques and all findings. Writes a report under five headings: verdict, recovered payloads, hiding technique, what it means, next steps | [Qwen3-VL-2B-Instruct](https://huggingface.co/onnx-community/Qwen3-VL-2B-Instruct-ONNX), ~1.4 GB |
 
 The pixel and file checks finish in under a second. Once the models are stored, they load in the background when the page opens, and a full 1920×1080 analysis takes about 25 seconds on an idle Apple Silicon laptop (closer to 45–50 seconds when the machine is busy).
 
@@ -100,7 +94,7 @@ cd steganography-decoder
 python3 -m http.server 8000
 ```
 
-Open <http://localhost:8000> and click a demo. Text reading and AI interpretation need a browser with WebGPU (Chrome, Edge or Safari 26+). Without WebGPU, the file and pixel checks still work, and text reading is designed to fall back to the CPU (slower, and untested so far).
+Open <http://localhost:8000> and click a demo. Text reading and AI steganalysis need a browser with WebGPU (Chrome, Edge or Safari 26+). Without WebGPU, the file and pixel checks still work, and text reading is designed to fall back to the CPU (slower, and untested so far).
 
 ## How it works
 
@@ -108,7 +102,7 @@ Open <http://localhost:8000> and click a demo. Text reading and AI interpretatio
 2. **File and pixel checks** run on the main thread in [`lib/`](../lib): [`metadata.js`](../lib/metadata.js) for the file structure and C2PA, [`stego.js`](../lib/stego.js) for bit extraction, the scan, decoding and file carving, [`forensics.js`](../lib/forensics.js) for the statistical bit tests, frequency, colour and resizing, and [`views.js`](../lib/views.js) for the saturation views.
 3. **The models run in a Web Worker** ([`worker.js`](../worker.js)) with [Transformers.js](https://huggingface.co/docs/transformers.js) on WebGPU. With 8 GB or more of memory both stay loaded between images; on smaller machines only one is kept at a time, because integrated GPUs share system RAM. The worker runs one model job at a time: ONNX Runtime stalls if a model is set up while another is running.
 4. **Text reading** cuts each view into overlapping 768 px tiles (Florence-2's input size) and merges the reads ([`pipeline.js`](../lib/pipeline.js)). Reads at the same place are combined even when tiles or views spell them differently.
-5. **Interpretation** sends Qwen3-VL several pictures plus the findings. Text taken from the image or file goes inside a delimited data block that the model is told never to follow, and `<` and `>` are stripped so that text can't close the block early.
+5. **Steganalysis** sends Qwen3-VL the picture, its lowest-bit plane and the decoder results, and asks for a verdict, the payloads, the technique, their meaning and next steps. The decoders do the decoding; the model explains. Text taken from the image or file goes inside a delimited data block that the model is told never to follow, and `<` and `>` are stripped so that text can't close the block early.
 
 ### Storage
 
@@ -145,7 +139,7 @@ The root [`README.md`](../README.md) holds the Space's settings in its front mat
 - **Invisible model watermarks** (OpenAI's, SynthID, Stable Diffusion's DWT-DCT mark) can't be decoded; they need the maker's detector. The app reports when content credentials *say* one was added.
 - **Content credentials aren't verified.** The app reads what the manifest claims; check the signature at [contentcredentials.org/verify](https://contentcredentials.org/verify).
 - **Logos away from the corners:** there's no trained logo or watermark detector. Corner marks are found by the grounding check above; elsewhere, watermarks are inferred from repeated text, text that appears only after enhancement, and the AI's reading.
-- **The AI interpretation can be wrong.** Qwen3-VL-2B is small: in testing it sometimes named colours wrong or left a finding out of its summary. The raw findings always appear above it.
+- **The AI steganalysis can be wrong.** Qwen3-VL-2B is small: in testing it sometimes mixed up which payload came from where, or suggested steghide when it wasn't needed. The decoders' findings always appear above it. It is guided by its prompt and inputs, not fine-tuned on steganography.
 - **Tested in Chrome on Apple Silicon.** The no-WebGPU path, Safari and 16-bit PNGs haven't been tested.
 
 ## Credits

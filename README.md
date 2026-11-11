@@ -35,7 +35,7 @@ Safari 26+).
 | Resizing | Averaged vs point-sampled shrink, to catch image-scaling attacks | none |
 | Text | OCR on 768 px tiles of three views: normal, high saturation, low saturation. Text seen only in an enhanced view is flagged | Florence-2-base (~360 MB) |
 | Corner logos | Florence-2 grounds "logo" in each corner crop; a small tight box near the edges is a mark | Florence-2-base |
-| Interpretation | The downscaled image (~0.5 MP), a saturated view and close-ups of flagged regions, plus all findings | Qwen3-VL-2B-Instruct (~1.4 GB) |
+| AI steganalysis | The downscaled image (~0.5 MP), its lowest-bit plane, close-ups, recovered payloads and detected techniques; reports verdict, payloads, technique, meaning and next steps | Qwen3-VL-2B-Instruct (~1.4 GB) |
 
 PNG files are decoded in JavaScript so pixel values are exact. Browser
 (canvas) decoding can be altered by colour management and anti-fingerprinting
@@ -64,7 +64,7 @@ Source and screenshots: [github.com/GHeart01/steganography-decoder](https://gith
   repeated text, text that appears only after enhancement, and the AI's reading.
 - Invisible model watermarks (SynthID, Stable Diffusion's DWT-DCT mark) are not
   decoded.
-- The AI interpretation can be wrong. Text read from the image is passed to it
+- The AI steganalysis can be wrong. Text read from the image is passed to it
   as data, and the raw findings are always shown next to it.
 
 ## Development

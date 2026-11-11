@@ -291,6 +291,11 @@ button:disabled { cursor: default; }
   font-size: 0.8125rem; line-height: 1.75;
   background: var(--fill); border-radius: var(--radius-sm); padding: 16px 18px;
 }
+.ai p { margin: 0; white-space: normal; }
+.ai .ai-h { font-weight: 650; letter-spacing: -0.01em; margin-top: 12px; }
+.ai .ai-h:first-child { margin-top: 0; }
+.ai .ai-b { padding-left: 16px; position: relative; color: var(--text); }
+.ai .ai-b::before { content: "–"; position: absolute; left: 0; color: var(--faint); }
 .hint { color: var(--muted); font-size: 0.75rem; margin: -6px 0 14px; }
 .empty { color: var(--muted); padding: 4px 0; animation: none; }
 
