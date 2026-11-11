@@ -5,6 +5,10 @@ import { makeViews, VIEW_INFO } from "./lib/views.js";
 import { makeTiles, mergeOcr, ocrFindings, buildVlmInputs, buildPrompt, cornerCrops, cornerMarks, cornerMarkFindings } from "./lib/pipeline.js";
 import { cacheStatus, clearCache } from "./lib/opfs-cache.js";
 import { makeSample, drawSamplePreview } from "./lib/sample.js";
+import {
+  extractBits, capacity, fileTypeAt, carveFile, looksLikeText, printableRun, asLatin1, decodeLayers,
+  bitPlaneView, colourMapView, hexDump, describeCfg, cfgCode, normalizeCfg, scanConfigs, CHANNEL_SETS,
+} from "./lib/stego.js";
 
 const $ = (id) => document.getElementById(id);
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -205,7 +209,7 @@ function renderView(name) {
   $("view-info").textContent = v.info;
   const canvas = $("view");
   toCanvas(v.img, canvas);
-  canvas.classList.toggle("pixelated", name === "lsb" || name === "nearest");
+  canvas.classList.toggle("pixelated", name === "lsb" || name === "nearest" || name === "colours");
   const svg = $("overlay");
   svg.replaceChildren();
   if (v.boxes && $("show-boxes").checked) {
@@ -301,6 +305,145 @@ function renderFile(file, decoded, meta) {
   $("structure").textContent = meta.structure.join(" → ") || "(not parsed)";
 }
 
+
+// ---------------------------------------------------------------------------
+// Decoder: read any bits of any channels, see them, save them.
+
+function saveBytes(bytes, name, type = "application/octet-stream") {
+  const url = URL.createObjectURL(new Blob([bytes], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+const kb = (n) => (n < 1024 ? `${n} bytes` : `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} KB`);
+let dec = null; // { img, cfg, hits, current }
+
+function segButtons(id, items, isOn, onPick, multi = false) {
+  $(id).replaceChildren(...items.map(([value, label]) => {
+    const b = el("button", "", label);
+    b.type = "button";
+    b.setAttribute("role", multi ? "checkbox" : "radio");
+    b.setAttribute(multi ? "aria-pressed" : "aria-checked", String(isOn(value)));
+    b.addEventListener("click", () => onPick(value));
+    return b;
+  }));
+}
+
+function renderDecoderControls() {
+  const c = dec.cfg;
+  const hasAlpha = scanConfigs(dec.img).some((x) => x.channels.includes("A"));
+  const sets = CHANNEL_SETS.filter((s) => hasAlpha || !s.includes("A"));
+  segButtons("dec-channels", sets.map((s) => [s, s]), (v) => v === c.channels, (v) => setCfg({ channels: v }));
+  segButtons("dec-bits", [7, 6, 5, 4, 3, 2, 1, 0].map((b) => [b, String(b)]), (v) => c.bits.includes(v), (v) => {
+    const bits = c.bits.includes(v) ? c.bits.filter((x) => x !== v) : [...c.bits, v];
+    if (bits.length) setCfg({ bits });
+  }, true);
+  segButtons("dec-order", [["rows", "Rows"], ["cols", "Columns"]], (v) => v === c.order, (v) => setCfg({ order: v }));
+  segButtons("dec-msb", [[true, "High bit first"], [false, "Low bit first"]], (v) => v === c.msbFirst, (v) => setCfg({ msbFirst: v }));
+}
+
+function setCfg(change, hitIndex = null) {
+  dec.cfg = normalizeCfg({ ...dec.cfg, ...change });
+  dec.current = hitIndex;
+  renderDecoder();
+}
+
+function describeBytes(bytes) {
+  const file = fileTypeAt(bytes);
+  if (file) return { file, text: `Starts with a ${file.label}.` };
+  const run = printableRun(bytes, 0);
+  if (run >= 8 && looksLikeText(bytes, 0, run)) {
+    const msg = asLatin1(bytes, 0, run);
+    const layers = decodeLayers(msg);
+    const last = layers.at(-1);
+    return { text: last ? `Starts with ${layers.map((l) => l.encoding).join(", then ")} text that decodes to: ${(last.text ?? `a ${last.file.label}`).slice(0, 120)}` : "Starts with readable text." };
+  }
+  return { text: "No readable text or known file at the start. Untouched bits look like this: noise or the picture's own texture." };
+}
+
+function renderDecoder() {
+  const { img, cfg } = dec;
+  for (const [i, li] of [...$("hits").children].entries()) li.setAttribute("aria-current", String(i === dec.current));
+  renderDecoderControls();
+  toCanvas(bitPlaneView(img, cfg), $("plane"));
+  const head = extractBits(img, cfg, 512);
+  const cap = capacity(img, cfg);
+  const { text } = describeBytes(head);
+  $("dec-summary").textContent = `${describeCfg(cfg)}. ${text}`;
+  $("dump").textContent = hexDump(head);
+  $("dec-save-info").textContent = `Up to ${kb(cap)} fit in these bits.`;
+}
+
+$("dec-save").addEventListener("click", () => {
+  const all = extractBits(dec.img, dec.cfg);
+  const file = fileTypeAt(all);
+  const hit = dec.current != null ? dec.hits[dec.current] : null;
+  if (file) {
+    const { bytes, exact } = carveFile(all, file);
+    saveBytes(bytes, `hidden-${cfgCode(dec.cfg)}.${file.ext}`, file.type);
+    $("dec-save-info").textContent = exact ? `Saved the ${file.label} (${kb(bytes.length)}).` : `Saved ${kb(bytes.length)}: the ${file.label}'s end couldn't be found, so trailing bytes are included.`;
+  } else if (hit?.decoded?.at(-1)?.file) {
+    const last = hit.decoded.at(-1);
+    const { bytes } = carveFile(last.bytes, last.file);
+    saveBytes(bytes, `hidden-${cfgCode(dec.cfg)}.${last.file.ext}`, last.file.type);
+    $("dec-save-info").textContent = `Saved the decoded ${last.file.label} (${kb(bytes.length)}).`;
+  } else if (hit?.kind === "text") {
+    saveBytes(new TextEncoder().encode(hit.message), `hidden-${cfgCode(dec.cfg)}.txt`, "text/plain");
+    $("dec-save-info").textContent = "Saved the message as text.";
+  } else {
+    saveBytes(all, `bits-${cfgCode(dec.cfg)}.bin`);
+    $("dec-save-info").textContent = `Saved all ${kb(all.length)}.`;
+  }
+});
+
+function renderHits(hits, tried) {
+  if (!hits.length) {
+    $("hits").replaceChildren(el("li", "hint", `The scan tried ${tried} channel and bit orderings and found no readable text or known file.`));
+    return;
+  }
+  $("hits").replaceChildren(...hits.map((h, i) => {
+    const li = el("li", "hit");
+    li.append(el("span", "hit-title", h.kind === "file" ? `${h.label}` : "Readable text"));
+    const b = el("button", "secondary", "Open");
+    b.type = "button";
+    b.addEventListener("click", () => setCfg(h.cfg, i));
+    li.append(b);
+    li.append(el("span", "hit-sub", `${h.order}${h.framing ? ` · ${h.framing}` : ""}`));
+    if (h.kind === "text") {
+      const last = h.decoded?.at(-1);
+      li.append(el("span", "hit-text", h.preview + (last ? `\n→ ${h.decoded.map((l) => l.encoding).join(", then ")}: ${last.text ?? last.file.label}` : "")));
+    }
+    return li;
+  }));
+}
+
+function setupDecoder(img, lsb) {
+  dec = { img, hits: lsb.messages, current: lsb.messages.length ? 0 : null, cfg: normalizeCfg(lsb.messages[0]?.cfg ?? {}) };
+  renderHits(lsb.messages, scanConfigs(img).length);
+  renderDecoder();
+}
+
+let trailing = null;
+$("save-trailing").addEventListener("click", () => {
+  if (!trailing) return;
+  const file = fileTypeAt(trailing);
+  const { bytes } = file ? carveFile(trailing, file) : { bytes: trailing };
+  saveBytes(bytes, `appended.${file?.ext ?? "bin"}`, file?.type);
+});
+function setupTrailing(decoded, meta) {
+  trailing = meta.trailing ? decoded.bytes.slice(meta.trailing.offset) : null;
+  $("trailing-actions").hidden = !trailing;
+  if (trailing) {
+    const what = fileTypeAt(trailing)?.label ?? meta.trailing.embedded;
+    $("trailing-info").textContent = `${kb(trailing.length)} after the end of the image${what ? `, a ${what}` : ""}.`;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // The analysis
 
@@ -388,6 +531,8 @@ async function analyze(file) {
         { key: "low", label: "Low saturation", img: views.low, info: VIEW_INFO.low, boxes: true },
         ...(faint.marks.length ? [{ key: "faint", label: "Faint marks", img: faint.view, boxes: true,
           info: "Each pixel's difference from the flat colour around it, amplified. Shapes drawn a few shades off their background show up white." }] : []),
+        { key: "colours", label: "Random colours", img: colourMapView(img), boxes: true,
+          info: "Every distinct colour swapped for a random one. Shades that differ by a single step, invisible normally, become obviously different." },
         { key: "lsb", label: "Lowest bits", img: lsbPlaneView(img), boxes: true,
           info: "Lowest bit of each colour channel, amplified. Untouched areas look like the image's noise; hidden data looks like static, often in a block at the top." },
         { key: "spectrum", label: "Frequency spectrum", img: spectrum.view,
@@ -402,6 +547,8 @@ async function analyze(file) {
     renderTexts();
     renderColor(color);
     renderFile(file, decoded, meta);
+    setupDecoder(img, lsb);
+    setupTrailing(decoded, meta);
     $("text-card").hidden = !useOcr;
     $("results").hidden = false;
 

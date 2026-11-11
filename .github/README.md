@@ -1,8 +1,8 @@
-# AI Image Decoder
+# Steganography Decoder
 
-Find text, watermarks, colour patterns and hidden data in an image, with AI models that run entirely in your browser. No server, no API key, and your image never leaves the page.
+Find and decode what an image is hiding: messages in the pixels' bits, files attached or embedded, faint text and watermarks. Everything runs in your browser, including the two AI models that read text and explain the findings. No server, no API key, and your image never leaves the page.
 
-**[▶ Try the live demo on Hugging Face Spaces](https://huggingface.co/spaces/GHeart01/ai-image-decoder)**
+**[▶ Try the live demo on Hugging Face Spaces](https://huggingface.co/spaces/GHeart01/steganography-decoder)**
 
 <table>
   <tr>
@@ -15,13 +15,23 @@ Find text, watermarks, colour patterns and hidden data in an image, with AI mode
   </tr>
 </table>
 
-Run this image through the app and it reports: **7 faint shapes hidden in flat colour** and **The faint shapes spell “REACHES”**. Try it yourself: it's the *Colour stripes* demo in the [live app](https://huggingface.co/spaces/GHeart01/ai-image-decoder).
+Run this image through the app and it reports: **7 faint shapes hidden in flat colour** and **The faint shapes spell “REACHES”**. Try it yourself: it's the *Colour stripes* demo in the [live app](https://huggingface.co/spaces/GHeart01/steganography-decoder).
+
+## The decoder
+
+Every analysis scans the pixels the way steganography tools write into them: 60 combinations (84 with alpha) of colour channels (RGB, BGR, each channel alone, and alpha when the image has one), bit positions (bit 0, bit 1, bits 1 and 0), pixel order (rows or columns) and byte order. A combination counts only if it gives readable text or a known file signature (PNG, JPEG, GIF, ZIP, PDF, 7-Zip, RAR, gzip, WebP). Tool framing such as Stegano's length prefix or a `#####` end marker is stripped, and Base64, hex and binary text is decoded, up to three layers deep.
+
+The Decoder panel lists the hits. Open one, or pick any channels and bits yourself, to see that bit plane as a picture, read a hex dump of the bytes, and save them. Embedded files are cut at their real end (PNG `IEND`, the JPEG end marker, the ZIP directory record, PDF `%%EOF`). Data appended after the end of the image file can be saved from the File card.
+
+![The Decoder panel on the Harbour sample: two hits, the second in bit 1 of blue read column by column, a Base64 string that decodes to “Second layer: the boat leaves at six.”, the channel and bit controls, and that bit plane as a black-and-white picture](decoder.jpg)
+
+The Harbour sample hides two messages. The scan finds the first in the lowest bit of R, G and B, and the second in bit 1 of blue, read column by column, as Base64. The bit-plane picture also shows the faint “PROOF” watermark, which is invisible in the normal view.
 
 ## Real demos
 
 Both images below are one-click demos in the app, and everything shown is the app's actual output.
 
-![AI Image Decoder: monospace interface with a translucent top bar, drop zone, four demo previews (alpine lake, colour stripes, ribbons, harbour) and switches for the two models](screenshot.jpg)
+![Steganography Decoder: monospace interface with a translucent top bar, drop zone, four demo previews (alpine lake, colour stripes, ribbons, harbour) and switches for the two models](screenshot.jpg)
 
 <p>
   <img src="../demo/alpine-lake-chatgpt.png" width="62%" alt="ChatGPT-generated alpine lake at sunset">
@@ -56,7 +66,7 @@ Exaggerating colour differences is how the app exposes marks that blend into the
 ### More demos in the app
 
 - **Ribbons:** a real photo whose credentials record it being opened and colour-adjusted.
-- **Harbour:** a generated test image. The app finds everything planted: a ZIP file attached after the image, a sentence hidden in the pixels' lowest bits, a PNG comment, a 4%-opacity "PROOF" watermark, and colour-camouflaged text.
+- **Harbour:** a generated test image. The app finds everything planted: a ZIP file attached after the image, a sentence in the pixels' lowest bits, a second, Base64-encoded sentence in bit 1 of blue, a PNG comment, a 4%-opacity "PROOF" watermark, and colour-camouflaged text.
 
 ## What it checks
 
@@ -64,7 +74,8 @@ Exaggerating colour differences is how the app exposes marks that blend into the
 |---|---|---|
 | **File structure** | EXIF, XMP and PNG text fields; AI-generation prompts (Stable Diffusion, ComfyUI); non-standard blocks; data appended after the image | none |
 | **Content credentials** | Reads the C2PA manifest: declared source (camera, AI-generated, AI-edited…), the tool that made it, and recorded steps such as edits or an added invisible watermark | none |
-| **Lowest bits** | Extracts messages in the orderings simple tools use, runs a chi-square attack, and compares aligned and misaligned value pairs in flat areas, counting only scattered flips (a solid faint shape isn't noise) | none |
+| **Hidden bits** | Scans 60 channel, bit and order combinations (84 with alpha) for text and file signatures, strips tool framing, and decodes Base64, hex and binary. Also runs a chi-square attack, and compares aligned and misaligned value pairs in flat areas, counting only scattered flips (a solid faint shape isn't noise) | none |
+| **Bit planes and colours** | Any bit of any channel as a picture, and a random colour map that gives every distinct colour its own colour, so shades one step apart stand out | none |
 | **Faint marks** | In flat-colour artwork: shapes enclosed by one flat area and only a few shades off its colour. Shown amplified in a Faint marks view, lined up in reading order and read with OCR | Florence-2-base (to read them) |
 | **Frequency** | 2-D FFT; isolated peaks reveal grids, halftone, moiré and frequency watermarks | none |
 | **Colour** | Palette with plain colour names, saturation, histogram gaps, lowest-bit colour twins | none |
@@ -84,8 +95,8 @@ One monospace type stack (SF Mono, Cascadia Mono and friends: no web fonts, so n
 Run it locally with any static file server. You need one because browsers block ES modules on `file://` pages.
 
 ```bash
-git clone https://github.com/GHeart01/ai-image-decoder.git
-cd ai-image-decoder
+git clone https://github.com/GHeart01/steganography-decoder.git
+cd steganography-decoder
 python3 -m http.server 8000
 ```
 
@@ -94,7 +105,7 @@ Open <http://localhost:8000> and click a demo. Text reading and AI interpretatio
 ## How it works
 
 1. **Exact pixels.** PNGs are decoded in JavaScript, so pixel values are exact. Browser (canvas) decoding can be altered by colour management and by anti-fingerprinting noise, which would destroy lowest-bit evidence. The app tests for that noise and warns when it's present.
-2. **File and pixel checks** run on the main thread in [`lib/`](../lib): [`metadata.js`](../lib/metadata.js) for the file structure and C2PA, [`forensics.js`](../lib/forensics.js) for the lowest bits, frequency, colour and resizing, and [`views.js`](../lib/views.js) for the saturation views.
+2. **File and pixel checks** run on the main thread in [`lib/`](../lib): [`metadata.js`](../lib/metadata.js) for the file structure and C2PA, [`stego.js`](../lib/stego.js) for bit extraction, the scan, decoding and file carving, [`forensics.js`](../lib/forensics.js) for the statistical bit tests, frequency, colour and resizing, and [`views.js`](../lib/views.js) for the saturation views.
 3. **The models run in a Web Worker** ([`worker.js`](../worker.js)) with [Transformers.js](https://huggingface.co/docs/transformers.js) on WebGPU. With 8 GB or more of memory both stay loaded between images; on smaller machines only one is kept at a time, because integrated GPUs share system RAM. The worker runs one model job at a time: ONNX Runtime stalls if a model is set up while another is running.
 4. **Text reading** cuts each view into overlapping 768 px tiles (Florence-2's input size) and merges the reads ([`pipeline.js`](../lib/pipeline.js)). Reads at the same place are combined even when tiles or views spell them differently.
 5. **Interpretation** sends Qwen3-VL several pictures plus the findings. Text taken from the image or file goes inside a delimited data block that the model is told never to follow, and `<` and `>` are stripped so that text can't close the block early.
@@ -105,7 +116,7 @@ The models download once and are stored in the browser's private file system (OP
 
 ## Tests
 
-The forensic checks are tested against planted ground truth and clean controls, including several cases found on real images: dithered gradients, near-black noise, OCR misreads at tile edges, tall phantom text boxes, and the soft edges of faint letters.
+The checks are tested against planted ground truth and clean controls. The decoder tests include images made with a real tool ([Stegano](https://github.com/cedricbonhomme/Stegano)), every ordering round-tripped, file carving, and decoding. Other tests cover cases found on real images: dithered gradients, near-black noise, OCR misreads at tile edges, tall phantom text boxes, and the soft edges of faint letters.
 
 ```bash
 cd tests
@@ -118,16 +129,18 @@ npm test
 The app is a free **static** [Hugging Face Space](https://huggingface.co/docs/hub/spaces). With the [`hf` CLI](https://huggingface.co/docs/huggingface_hub/guides/cli) logged in (`hf auth login`), run this from the repo folder, replacing `<username>`:
 
 ```bash
-hf repos create <username>/ai-image-decoder --type space --sdk static
+hf repos create <username>/steganography-decoder --type space --sdk static
 ```
 ```bash
-hf upload <username>/ai-image-decoder . --type space --exclude ".git/*" --exclude ".github/*" --exclude "tests/node_modules/*"
+hf upload <username>/steganography-decoder . --type space --exclude ".git/*" --exclude ".github/*" --exclude "tests/node_modules/*"
 ```
 
 The root [`README.md`](../README.md) holds the Space's settings in its front matter, so keep that file. This page lives in `.github/README.md` so that GitHub shows it instead. Any other static host works too.
 
 ## Limitations
 
+- **Password-protected and JPEG-coefficient hiding can't be decoded.** Tools that scramble with a key (steghide, OutGuess, OpenStego with a password) or hide in JPEG compression coefficients (F5, JSteg) need the key or the tool. The statistical checks may still notice them.
+- **Only the start of each bit stream is scanned** (the first 4 KB per combination), which is where sequential tools write. Use the Decoder's controls to look elsewhere.
 - **Lossy files:** JPEG and WebP compression rewrite the lowest bits, so hidden-bit results on those formats are weak evidence.
 - **Invisible model watermarks** (OpenAI's, SynthID, Stable Diffusion's DWT-DCT mark) can't be decoded; they need the maker's detector. The app reports when content credentials *say* one was added.
 - **Content credentials aren't verified.** The app reads what the manifest claims; check the signature at [contentcredentials.org/verify](https://contentcredentials.org/verify).

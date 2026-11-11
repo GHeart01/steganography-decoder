@@ -14,5 +14,7 @@
 
 `thumbs/` holds 480 px previews for the demo picker.
 
-The "Harbour" sample with planted hidden content is generated in the browser by
+The "Harbour" sample with planted hidden content (two hidden messages, one of
+them Base64 in bit 1 of blue, an appended file, a PNG comment and a faint
+watermark) is generated in the browser by
 [`lib/sample.js`](../lib/sample.js), so it isn't stored here.

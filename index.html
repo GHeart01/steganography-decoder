@@ -4,13 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="light dark" />
-  <title>AI Image Decoder</title>
+  <title>Steganography Decoder</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="topbar">
     <div class="topbar-inner">
-      <span class="wordmark">AI Image Decoder</span>
+      <span class="wordmark">Steganography Decoder</span>
       <span class="status" id="status" data-kind="idle" role="status" aria-live="polite">
         <span class="status-dot" aria-hidden="true"></span>
         <span id="status-text">Checking browser…</span>
@@ -22,7 +22,7 @@
     <section class="hero">
       <h1>Decode what an image is hiding.</h1>
       <p class="sub">
-        Finds text, watermarks, colour patterns and hidden data in an image.
+        Finds and decodes hidden messages, embedded files, faint text and watermarks in an image.
         Everything runs in your browser: your image never leaves this page.
       </p>
     </section>
@@ -56,7 +56,7 @@
           <button type="button" class="demo-card" id="sample">
             <canvas id="sample-preview" width="480" height="270" aria-hidden="true"></canvas>
             <span class="demo-title">Harbour</span>
-            <span class="demo-sub">Hidden message, attached file, faint watermark</span>
+            <span class="demo-sub">Two hidden messages, an attached file, a faint watermark</span>
           </button>
         </div>
       </div>
@@ -124,6 +124,25 @@
         </label>
       </section>
 
+      <section class="card" id="decoder-card">
+        <h2>Decoder</h2>
+        <p class="hint">Read bytes straight out of the pixels, the way steganography tools hide them. Open a hit from the scan, or pick channels and bits yourself.</p>
+        <ul class="hits" id="hits"></ul>
+        <div class="dec-controls">
+          <div class="dec-row"><span class="dec-label" id="dec-channels-label">Channels</span><div class="segmented" id="dec-channels" role="radiogroup" aria-labelledby="dec-channels-label"></div></div>
+          <div class="dec-row"><span class="dec-label" id="dec-bits-label">Bits</span><div class="segmented" id="dec-bits" role="group" aria-labelledby="dec-bits-label"></div></div>
+          <div class="dec-row"><span class="dec-label" id="dec-order-label">Pixel order</span><div class="segmented" id="dec-order" role="radiogroup" aria-labelledby="dec-order-label"></div></div>
+          <div class="dec-row"><span class="dec-label" id="dec-msb-label">Byte order</span><div class="segmented" id="dec-msb" role="radiogroup" aria-labelledby="dec-msb-label"></div></div>
+        </div>
+        <div class="stage"><canvas id="plane" class="pixelated"></canvas></div>
+        <p class="dec-summary" id="dec-summary" aria-live="polite"></p>
+        <pre class="dump" id="dump"></pre>
+        <div class="dec-actions">
+          <button type="button" class="secondary" id="dec-save">Save these bytes</button>
+          <span class="hint" id="dec-save-info"></span>
+        </div>
+      </section>
+
       <section class="card" id="text-card">
         <h2>Text found</h2>
         <table class="texts">
@@ -146,6 +165,10 @@
           <summary>File structure</summary>
           <p class="structure" id="structure"></p>
         </details>
+        <div class="dec-actions" id="trailing-actions" hidden>
+          <button type="button" class="secondary" id="save-trailing">Save the appended data</button>
+          <span class="hint" id="trailing-info"></span>
+        </div>
       </section>
     </section>
 
