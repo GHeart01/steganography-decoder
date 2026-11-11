@@ -121,6 +121,24 @@ async function florence({ tiles, f16 }) {
   return results;
 }
 
+// Florence-2: one task (caption, grounding…) over several small regions.
+// Used to spot logos in the corners, which OCR misses when they aren't text.
+async function regions({ images, task = "<CAPTION>", text: query = "", f16 }) {
+  const { model, processor } = await load("florence", f16);
+  const prompts = processor.construct_prompts(task + query);
+  const out = [];
+  for (const img of images) {
+    if (stopRequested) break;
+    const image = toRaw(img);
+    const inputs = await processor(image, prompts);
+    const ids = await model.generate({ ...inputs, max_new_tokens: 40, num_beams: 1, do_sample: false });
+    const text = processor.batch_decode(ids, { skip_special_tokens: false })[0];
+    const result = processor.post_process_generation(text, task, [image.width, image.height])[task];
+    out.push(typeof result === "string" ? result.trim() : result);
+  }
+  return out;
+}
+
 // Qwen3-VL: one prompt over several images, streamed back token by token.
 // Transformers.js 4.3.2 treats an image list as video frames, so each image
 // is preprocessed separately and the results concatenated.
@@ -227,7 +245,7 @@ self.onmessage = async ({ data }) => {
         await load(args.name, caps.f16);
         return true;
       }
-      const fn = { florence, qwen }[cmd];
+      const fn = { florence, qwen, regions }[cmd];
       stopRequested = false;
       return fn({ ...args, f16: caps.f16 });
     });

@@ -2,7 +2,7 @@ import { decodeImage } from "./lib/decode.js";
 import { analyzeContainer } from "./lib/metadata.js";
 import { analyzeLsb, analyzeSpectrum, analyzeColor, scalingAttackCheck, lsbPlaneView, fitSize } from "./lib/forensics.js";
 import { makeViews, VIEW_INFO } from "./lib/views.js";
-import { makeTiles, mergeOcr, ocrFindings, buildVlmInputs, buildPrompt } from "./lib/pipeline.js";
+import { makeTiles, mergeOcr, ocrFindings, buildVlmInputs, buildPrompt, cornerCrops, cornerMarks, cornerMarkFindings } from "./lib/pipeline.js";
 import { cacheStatus, clearCache } from "./lib/opfs-cache.js";
 import { makeSample, drawSamplePreview } from "./lib/sample.js";
 
@@ -74,6 +74,7 @@ $("clear").addEventListener("click", async () => {
   storedModels.clear();
   readyModels.clear();
   $("storage-text").textContent = "Downloaded models removed from this device.";
+  if (caps?.device === "webgpu") setStatus("ready", "WebGPU ready", { idle: true });
   $("clear").hidden = true;
 });
 
@@ -96,8 +97,16 @@ function step(name, state) {
 }
 function bar(fraction, text) {
   $("bar-wrap").hidden = fraction === null;
-  if (fraction !== null) $("bar").style.width = `${(fraction * 100).toFixed(1)}%`;
+  if (fraction !== null) $("bar").style.transform = `scaleX(${Math.max(0, Math.min(1, fraction)).toFixed(4)})`;
   $("bar-text").textContent = text ?? "";
+}
+
+// Status pill in the top bar: idle | busy | ready | warn.
+let idleStatus = ["idle", "Ready"];
+function setStatus(kind, text, { idle = false } = {}) {
+  if (idle) idleStatus = [kind, text];
+  $("status").dataset.kind = kind;
+  $("status-text").textContent = text;
 }
 
 // One progress state that every source feeds, so the bar doesn't flicker
@@ -170,8 +179,9 @@ function renderFindings(findings) {
     $("findings").replaceChildren(el("li", "empty", "Nothing suspicious found so far."));
     return;
   }
-  $("findings").replaceChildren(...sorted.map((f) => {
+  $("findings").replaceChildren(...sorted.map((f, i) => {
     const li = el("li", `finding ${f.severity}`);
+    li.style.setProperty("--i", Math.min(i, 8));
     li.append(el("div", "sev", f.severity === "info" ? "note" : f.severity));
     li.append(el("div", "title", f.title));
     if (f.detail) li.append(el("div", "detail", f.detail));
@@ -207,6 +217,15 @@ function renderView(name) {
       if (t.enhancedOnly) r.setAttribute("class", "hidden-text");
       svg.append(r);
     }
+    for (const m of state.marks) {
+      const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      const pad = 6;
+      r.setAttribute("x", m.box.x0 - pad); r.setAttribute("y", m.box.y0 - pad);
+      r.setAttribute("width", m.box.x1 - m.box.x0 + 2 * pad); r.setAttribute("height", m.box.y1 - m.box.y0 + 2 * pad);
+      r.setAttribute("rx", 6);
+      r.setAttribute("class", "mark");
+      svg.append(r);
+    }
   }
 }
 
@@ -239,6 +258,7 @@ function renderTexts() {
     return tr;
   }));
   $("texts-empty").hidden = state.texts.length > 0;
+  $("texts").closest("table").hidden = state.texts.length === 0;
 }
 
 function stats(dl, pairs) {
@@ -288,13 +308,14 @@ async function analyze(file) {
   running = true;
   stopped = false;
   setInputs(false);
+  setStatus("busy", "Analysing…");
   const useOcr = $("use-ocr").checked;
   const useVlm = $("use-vlm").checked && !$("use-vlm").disabled;
   const S = {
     read: "Read the image",
     file: "Check the file structure",
     pixels: "Check pixels, colours and patterns",
-    ocr: "Read text in normal, high- and low-saturation views",
+    ocr: "Read text and look for corner logos",
     vlm: "Interpret with Qwen3-VL-2B",
   };
   setSteps([S.read, S.file, S.pixels, ...(useOcr ? [S.ocr] : []), ...(useVlm ? [S.vlm] : [])]);
@@ -341,7 +362,7 @@ async function analyze(file) {
     step(S.pixels, "done");
 
     state = {
-      width: img.width, height: img.height, texts: [], current: "normal",
+      width: img.width, height: img.height, texts: [], marks: [], current: "normal",
       viewList: [
         { key: "normal", label: "Normal", img: views.normal, info: VIEW_INFO.normal, boxes: true },
         { key: "high", label: "High saturation", img: views.high, info: VIEW_INFO.high, boxes: true },
@@ -374,6 +395,17 @@ async function analyze(file) {
       renderProgress();
       state.texts = mergeOcr(tiles, results);
       findings.push(...ocrFindings(state.texts, img.width, img.height).map((f) => ({ ...f, layer: "ocr" })));
+      if (!stopped) {
+        phaseText = "Looking for logos in the corners…";
+        renderProgress();
+        const crops = cornerCrops(img);
+        const grounded = await call("regions", {
+          images: crops.map((c) => c.image), task: "<CAPTION_TO_PHRASE_GROUNDING>", text: "logo",
+        });
+        state.marks = cornerMarks(crops, grounded);
+        findings.push(...cornerMarkFindings(state.marks, state.texts).map((f) => ({ ...f, layer: "ocr" })));
+        phaseText = "";
+      }
       renderFindings(findings);
       renderTexts();
       renderView(state.current);
@@ -387,7 +419,7 @@ async function analyze(file) {
       currentStep = S.vlm; step(S.vlm, "active");
       $("stop").hidden = false;
       $("ai-card").hidden = false;
-      const { images, captions } = buildVlmInputs(views, state.texts);
+      const { images, captions } = buildVlmInputs(views, state.texts, state.marks);
       const { system, prompt } = buildPrompt({ captions, findings, texts: state.texts, color, meta });
       $("ai-images").replaceChildren(...images.map((im) => toCanvas(im)));
       $("ai-prompt").textContent = prompt;
@@ -416,6 +448,7 @@ async function analyze(file) {
     $("stop").hidden = true;
     running = false;
     setInputs(true);
+    setStatus(...idleStatus);
     showStorage();
   }
 }
@@ -464,17 +497,17 @@ $("stop").addEventListener("click", () => {
 // background so the first analysis doesn't wait for them. Nothing is
 // downloaded here: only stored models are warmed up.
 async function warmUp() {
+  let warmed = false;
   for (const m of ["florence", "qwen"]) {
     if (running) return; // an analysis loads what it needs itself
     if (!storedModels.has(m)) continue;
     if (m === "florence" && !$("use-ocr").checked) continue;
     if (m === "qwen" && (!$("use-vlm").checked || $("use-vlm").disabled)) continue;
     if (!caps?.keepBoth && m === "qwen") continue;
-    $("caps").dataset.base ??= $("caps").textContent;
-    $("caps").textContent = `${$("caps").dataset.base} Getting ${MODEL_NAMES[m]} ready…`;
-    try { await call("preload", { name: m }); } catch {}
+    setStatus("busy", `Loading ${MODEL_NAMES[m]}…`);
+    try { await call("preload", { name: m }); warmed = true; } catch {}
   }
-  if ($("caps").dataset.base) $("caps").textContent = `${$("caps").dataset.base} Models ready.`;
+  if (warmed && !running) setStatus("ready", "Models ready", { idle: true });
 }
 
 (async () => {
@@ -482,16 +515,19 @@ async function warmUp() {
     caps = await call("caps");
     if (caps.device === "webgpu") {
       $("caps").textContent = caps.f16
-        ? "Your browser supports WebGPU, so the models run on your graphics chip."
-        : "WebGPU is available without 16-bit support; AI interpretation will be slower and download a little more.";
+        ? "Models run on your graphics chip through WebGPU."
+        : "WebGPU is available without 16-bit support: AI interpretation is slower and downloads a little more.";
       $("use-vlm").checked = true;
+      setStatus("ready", "WebGPU ready", { idle: true });
     } else {
       $("caps").textContent = "No WebGPU in this browser: text reading runs on the CPU (slower) and AI interpretation is unavailable. Try Chrome, Edge or Safari 26+.";
+      setStatus("warn", "No WebGPU", { idle: true });
       $("use-vlm").disabled = true;
       $("ocr-size").textContent = "about 280 MB";
     }
   } catch (err) {
     $("caps").textContent = `Couldn't start the model worker: ${err.message ?? err}`;
+    setStatus("warn", "Worker failed", { idle: true });
   }
   await showStorage();
   warmUp();

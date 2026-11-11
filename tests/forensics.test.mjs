@@ -344,3 +344,38 @@ test("near-black noise (clipped at 0) is not hidden data", () => {
   }
   assert.deepEqual(titles(analyzeLsb({ width: W, height: H, data })), []);
 });
+
+import { cornerCrops, cornerMarks, cornerMarkFindings } from "../lib/pipeline.js";
+
+test("corner marks: a tight grounding box is a mark, the whole crop is not", () => {
+  const img = { width: 1672, height: 941, data: new Uint8ClampedArray(1672 * 941 * 4) };
+  const crops = cornerCrops(img);
+  assert.equal(crops.length, 4);
+  const side = crops[0].side; // 188
+  const whole = { labels: ["logo"], bboxes: [[0, 0, side, side]] };
+  // Real Florence-2 output for the alpine lake image's top-right corner.
+  const results = [whole, { labels: ["logo"], bboxes: [[112, 24, 159, 58]] }, whole, whole];
+  const marks = cornerMarks(crops, results);
+  assert.equal(marks.length, 1);
+  assert.equal(marks[0].corner, "tr");
+  assert.equal(Math.round(marks[0].box.x0), 1672 - side + 112);
+  const f = cornerMarkFindings(marks);
+  assert.equal(f[0].title, "Small logo or mark in the top-right corner");
+  // A large partial box (e.g. a band of sky) isn't a mark either.
+  assert.equal(cornerMarks(crops, [{ bboxes: [[0, 0, side, 106]] }, whole, whole, whole]).length, 0);
+});
+
+test("corner marks already read as text aren't reported twice", () => {
+  const marks = [{ corner: "br", box: { x0: 1240, y0: 1010, x1: 1600, y1: 1045 } }];
+  const texts = [{ text: "Photo: sample image", box: { x0: 1239, y0: 1013, x1: 1640, y1: 1046 }, views: ["normal"] }];
+  assert.equal(cornerMarkFindings(marks, texts).length, 0);
+});
+
+test("corner marks: something in the inner part of the corner is ignored", () => {
+  const img = { width: 1920, height: 1080, data: new Uint8ClampedArray(1920 * 1080 * 4) };
+  const crops = cornerCrops(img); // side 216
+  const whole = { bboxes: [[0, 0, 216, 216]] };
+  // Real output on the Harbour sample: the corner of a grey panel, 139 px in.
+  const panel = { bboxes: [[139, 8, 216, 45]] };
+  assert.equal(cornerMarks(crops, [whole, whole, panel, whole]).length, 0);
+});

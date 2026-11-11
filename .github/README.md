@@ -4,7 +4,7 @@ Find text, watermarks, colour patterns and hidden data in an image, with AI mode
 
 **[▶ Try the live demo on Hugging Face Spaces](https://huggingface.co/spaces/GHeart01/ai-image-decoder)**
 
-![AI Image Decoder with its demo picker (alpine lake, neon waves, ribbons and harbour previews) after analysing the neon waves image](screenshot.jpg)
+![AI Image Decoder: monospace interface with a translucent top bar, drop zone, four demo previews and switches for the two models](screenshot.jpg)
 
 ## Real demo: two ChatGPT images
 
@@ -20,17 +20,18 @@ These two images were generated with ChatGPT. Both are in the app's demo picker 
 | **Content credentials (C2PA)** | AI-generated, made with ChatGPT / OpenAI Media Service API | Same |
 | **Recorded steps** | Created, converted to another format, invisible watermark added | Same |
 | **Visible text** | None | None |
+| **Corner logo** | A small, faint logo in the top-right corner (47×34 px) | None |
 | **Hidden data in the pixels or file** | None | None |
 
 ### Alpine lake: findings and AI interpretation
 
-The file checks read the credentials; Qwen3-VL-2B then describes the scene and explains what the credentials mean.
+The file checks read the credentials, the corner check finds the faint logo, and Qwen3-VL-2B describes the scene and what the credentials mean.
 
 ![Findings for the alpine lake image followed by Qwen3-VL-2B's interpretation](alpine-findings.jpg)
 
 ### Alpine lake: high-saturation view
 
-Exaggerating colour differences is how the app exposes marks that blend into the image. Here it makes the small faint logo in the top-right corner easier to see.
+Exaggerating colour differences is how the app exposes marks that blend into the image. The blue box is the corner logo the app found.
 
 ![High-saturation view of the alpine lake image](alpine-high-saturation.jpg)
 
@@ -60,9 +61,14 @@ Removing colour and equalising brightness shows the structure of the line field,
 | **Colour** | Palette with plain colour names, saturation, histogram gaps, lowest-bit colour twins | none |
 | **Resizing** | Compares an averaged and a point-sampled shrink to catch image-scaling attacks | none |
 | **Text** | OCR on 768 px tiles of three views (normal, high saturation, low saturation). Text that only appears in an enhanced view is flagged | [Florence-2-base](https://huggingface.co/onnx-community/Florence-2-base-ft), ~360 MB |
+| **Corner logos** | Each corner is cropped and Florence-2 is asked to locate "logo". With nothing there it returns the whole crop; a small, tight box near the edges is a mark | Florence-2-base |
 | **Interpretation** | Gets the image shrunk to ~0.5 megapixel, a saturated copy, close-ups of flagged regions and all findings, and writes a short report under six headings | [Qwen3-VL-2B-Instruct](https://huggingface.co/onnx-community/Qwen3-VL-2B-Instruct-ONNX), ~1.4 GB |
 
 The pixel and file checks finish in under a second. Once the models are stored, they load in the background when the page opens, and a full 1920×1080 analysis takes about 25 seconds on an idle Apple Silicon laptop (closer to 45–50 seconds when the machine is busy).
+
+## Design
+
+One monospace type stack (SF Mono, Cascadia Mono and friends: no web fonts, so nothing is fetched beyond the app and its models), Apple-style materials (a translucent top bar with a live model-status pill, switches, a segmented control) and restrained motion: press feedback, hover only on real pointers, a short staggered reveal for results, and everything reduced under `prefers-reduced-motion`. Light and dark follow the system.
 
 ## Quick start
 
@@ -116,7 +122,7 @@ The root [`README.md`](../README.md) holds the Space's settings in its front mat
 - **Lossy files:** JPEG and WebP compression rewrite the lowest bits, so hidden-bit results on those formats are weak evidence.
 - **Invisible model watermarks** (OpenAI's, SynthID, Stable Diffusion's DWT-DCT mark) can't be decoded; they need the maker's detector. The app reports when content credentials *say* one was added.
 - **Content credentials aren't verified.** The app reads what the manifest claims; check the signature at [contentcredentials.org/verify](https://contentcredentials.org/verify).
-- **Small logos:** there's no trained logo or watermark detector. Watermarks are inferred from repeated text, text that appears only after enhancement, and the AI's reading. The small faint logo in the alpine lake image's top-right corner isn't flagged as a finding, though the high-saturation view shows it.
+- **Logos away from the corners:** there's no trained logo or watermark detector. Corner marks are found by the grounding check above; elsewhere, watermarks are inferred from repeated text, text that appears only after enhancement, and the AI's reading.
 - **The AI interpretation can be wrong.** Qwen3-VL-2B is small: in testing it sometimes named colours wrong or left a finding out of its summary. The raw findings always appear above it.
 - **Tested in Chrome on Apple Silicon.** The no-WebGPU path, Safari and 16-bit PNGs haven't been tested.
 

@@ -3,27 +3,40 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
   <title>AI Image Decoder</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <span class="wordmark">AI Image Decoder</span>
+      <span class="status" id="status" data-kind="idle" role="status" aria-live="polite">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="status-text">Checking browser…</span>
+      </span>
+    </div>
+  </header>
+
   <main>
-    <header>
-      <h1>AI Image Decoder</h1>
+    <section class="hero">
+      <h1>Decode what an image is hiding.</h1>
       <p class="sub">
-        Looks for text, watermarks, colour patterns and hidden data in an image.
+        Finds text, watermarks, colour patterns and hidden data in an image.
         Everything runs in your browser: your image never leaves this page.
       </p>
-    </header>
+    </section>
 
     <section class="card" id="input-card">
       <label class="drop" id="drop">
         <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" />
-        <span class="drop-main">Drop an image here or click to choose one</span>
+        <svg class="drop-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="drop-main">Drop an image, or click to choose one</span>
         <span class="drop-sub">PNG keeps hidden data intact. JPEG and WebP compression destroy most of it.</span>
       </label>
+
       <div class="demos">
-        <p class="demo-label" id="demo-label">Or try a demo image:</p>
+        <p class="eyebrow" id="demo-label">Or try a demo</p>
         <div class="demo-grid" role="group" aria-labelledby="demo-label">
           <button type="button" class="demo-card demo" data-src="demo/alpine-lake-chatgpt.png">
             <img src="demo/thumbs/alpine-lake-chatgpt.jpg" alt="" width="480" height="270" />
@@ -49,16 +62,22 @@
       </div>
 
       <div class="options">
-        <label class="check">
-          <input type="checkbox" id="use-ocr" checked />
-          <span><strong>Read text</strong> with Florence-2 (<span id="ocr-size">about 360 MB</span>, downloaded once)</span>
+        <label class="option">
+          <span class="option-text">
+            <span class="option-title">Read text</span>
+            <span class="option-sub">Florence-2 · <span id="ocr-size">about 360 MB</span> · downloaded once</span>
+          </span>
+          <input type="checkbox" class="switch" role="switch" id="use-ocr" checked />
         </label>
-        <label class="check">
-          <input type="checkbox" id="use-vlm" />
-          <span><strong>Interpret with AI</strong> using Qwen3-VL-2B (about 1.4 GB, downloaded once, needs WebGPU)</span>
+        <label class="option">
+          <span class="option-text">
+            <span class="option-title">Interpret with AI</span>
+            <span class="option-sub">Qwen3-VL-2B · about 1.4 GB · downloaded once · needs WebGPU</span>
+          </span>
+          <input type="checkbox" class="switch" role="switch" id="use-vlm" />
         </label>
-        <p class="caps" id="caps">Checking your browser…</p>
       </div>
+      <p class="caps" id="caps">Checking your browser…</p>
 
       <div class="storage" id="storage" hidden>
         <span id="storage-text"></span>
@@ -93,13 +112,16 @@
 
       <section class="card">
         <h2>Views</h2>
-        <div class="tabs" id="tabs" role="tablist"></div>
+        <div class="segmented" id="tabs" role="tablist"></div>
         <p class="hint" id="view-info"></p>
         <div class="stage" id="stage">
           <canvas id="view"></canvas>
           <svg id="overlay" preserveAspectRatio="none"></svg>
         </div>
-        <label class="check small"><input type="checkbox" id="show-boxes" checked /> <span>Show text boxes</span></label>
+        <label class="option option-small">
+          <span class="option-text"><span class="option-title">Show text and logo boxes</span></span>
+          <input type="checkbox" class="switch" role="switch" id="show-boxes" checked />
+        </label>
       </section>
 
       <section class="card" id="text-card">
@@ -122,7 +144,7 @@
         <dl class="stats" id="file-stats"></dl>
         <details>
           <summary>File structure</summary>
-          <p class="mono" id="structure"></p>
+          <p class="structure" id="structure"></p>
         </details>
       </section>
     </section>
