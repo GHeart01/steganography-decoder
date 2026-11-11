@@ -379,3 +379,68 @@ test("corner marks: something in the inner part of the corner is ignored", () =>
   const panel = { bboxes: [[139, 8, 216, 45]] };
   assert.equal(cornerMarks(crops, [whole, whole, panel, whole]).length, 0);
 });
+
+import { faintMarks, readingOrder } from "../lib/forensics.js";
+
+// Flat stripes with an "L"-shaped mark a few shades off its stripe, like
+// letters hidden in a colour chart.
+function stripesWithFaintMarks() {
+  const w = 400, h = 200, data = new Uint8ClampedArray(w * h * 4);
+  const cols = [[210, 45, 45], [93, 240, 73], [0, 6, 253], [255, 157, 254]];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) data.set([...cols[Math.floor(y / 50)], 255], (y * w + x) * 4);
+  const mark = (x0, y0, d) => {
+    for (let y = y0; y < y0 + 30; y++) for (let x = x0; x < x0 + 20; x++) {
+      if (x - x0 > 5 && y - y0 < 24) continue; // L shape
+      const o = (y * w + x) * 4;
+      data[o] = Math.max(0, data[o] - d); data[o + 1] = Math.max(0, data[o + 1] - d);
+    }
+  };
+  mark(300, 60, 3);  // stripe 2, right
+  mark(50, 160, 4);  // stripe 4, left
+  mark(150, 10, 2);  // stripe 1, middle
+  return { width: w, height: h, data };
+}
+
+test("faint marks: shapes a few shades off a flat stripe are found in reading order", () => {
+  const r = faintMarks(stripesWithFaintMarks());
+  assert.equal(r.applicable, true);
+  assert.deepEqual(r.marks.map((m) => m.box.x0), [150, 300, 50]);
+  // The amplified view lights the marks up.
+  const at = (x, y) => r.view.data[(y * 400 + x) * 4];
+  assert.equal(at(152, 30), 255);
+  assert.equal(at(250, 30), 0);
+});
+
+test("faint marks: not applied to photos, no false hits", () => {
+  const r = faintMarks(photo(4));
+  assert.equal(r.applicable, false);
+  assert.equal(r.marks.length, 0);
+});
+
+test("reading order: lines top to bottom, left to right within a line", () => {
+  const m = (x, y) => ({ box: { x0: x, y0: y, x1: x + 10, y1: y + 20 } });
+  assert.deepEqual(readingOrder([m(50, 100), m(10, 5), m(30, 102), m(90, 6)]).map((x) => x.box.x0), [10, 90, 30, 50]);
+});
+
+test("soft edges of faint shapes aren't lowest-bit noise", () => {
+  // Faint marks whose anti-aliased edges are one shade off: a few pixels per
+  // block, not the ~50% random flips hidden data causes.
+  const img = stripesWithFaintMarks();
+  for (let y = 0; y < img.height; y += 9) for (let x = 3; x < img.width; x += 16) {
+    const o = (y * img.width + x) * 4;
+    img.data[o] ^= 1;
+  }
+  assert.deepEqual(analyzeLsb(img).findings.map((f) => f.title).filter((t) => t.startsWith("Noise")), []);
+});
+
+test("a solid stroke one shade off its background isn't lowest-bit noise", () => {
+  // A faint letter whose colour differs by exactly 1 in one channel: blocks
+  // hold two neighbouring values, but in a solid clump, not scattered.
+  const w = 400, h = 200, data = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < w * h; i++) data.set([210, 45, 45, 255], i * 4);
+  for (let y = 0; y < 48; y++) for (let x = 200; x < 392; x++) {
+    if ((x - 200) % 16 < 6) data[(y * w + x) * 4 + 1] -= 1; // vertical strokes, G 45 → 44 (an aligned pair)
+  }
+  const img = { width: w, height: h, data };
+  assert.deepEqual(analyzeLsb(img).findings.map((f) => f.title).filter((t) => t.startsWith("Noise")), []);
+});

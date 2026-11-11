@@ -27,6 +27,7 @@ Safari 26+).
 | File structure | Metadata (EXIF, XMP, PNG text), AI-generation prompts, non-standard blocks, data appended after the image | none |
 | Content credentials | C2PA manifest: declared source (e.g. AI-generated), the tool that made it, and recorded steps such as an added invisible watermark. Not signature-verified | none |
 | Lowest bits | Message extraction in common orderings, chi-square attack, aligned-pair analysis of flat areas | none |
+| Faint marks | In flat-colour artwork, shapes only a few shades off the flat area around them; shown amplified and read in order | Florence-2-base |
 | Frequency | 2-D FFT; isolated peaks reveal grids, halftone, moiré and frequency watermarks | none |
 | Colour | Palette (k-means), saturation, histogram gaps, lowest-bit colour twins | none |
 | Resizing | Averaged vs point-sampled shrink, to catch image-scaling attacks | none |
@@ -44,9 +45,9 @@ Visitors can remove them with one click.
 
 ## Demos
 
-Four one-click demos: two ChatGPT images whose credentials declare them
-AI-generated and watermarked, a real photo with an edit history, and a sample
-with planted hidden content. See [`demo/README.md`](demo/README.md).
+Four one-click demos: a ChatGPT image with content credentials and a faint
+corner logo, colour stripes hiding seven faint letters, a real photo with an
+edit history, and a sample with planted hidden content. See [`demo/README.md`](demo/README.md).
 
 Source and screenshots: [github.com/GHeart01/ai-image-decoder](https://github.com/GHeart01/ai-image-decoder)
 

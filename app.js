@@ -1,6 +1,6 @@
 import { decodeImage } from "./lib/decode.js";
 import { analyzeContainer } from "./lib/metadata.js";
-import { analyzeLsb, analyzeSpectrum, analyzeColor, scalingAttackCheck, lsbPlaneView, fitSize } from "./lib/forensics.js";
+import { analyzeLsb, analyzeSpectrum, analyzeColor, scalingAttackCheck, lsbPlaneView, fitSize, faintMarks, faintStrip } from "./lib/forensics.js";
 import { makeViews, VIEW_INFO } from "./lib/views.js";
 import { makeTiles, mergeOcr, ocrFindings, buildVlmInputs, buildPrompt, cornerCrops, cornerMarks, cornerMarkFindings } from "./lib/pipeline.js";
 import { cacheStatus, clearCache } from "./lib/opfs-cache.js";
@@ -217,6 +217,14 @@ function renderView(name) {
       if (t.enhancedOnly) r.setAttribute("class", "hidden-text");
       svg.append(r);
     }
+    for (const m of state.faint ?? []) {
+      const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      r.setAttribute("x", m.box.x0 - 4); r.setAttribute("y", m.box.y0 - 4);
+      r.setAttribute("width", m.box.x1 - m.box.x0 + 8); r.setAttribute("height", m.box.y1 - m.box.y0 + 8);
+      r.setAttribute("rx", 4);
+      r.setAttribute("class", "faint");
+      svg.append(r);
+    }
     for (const m of state.marks) {
       const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
       const pad = 6;
@@ -358,15 +366,28 @@ async function analyze(file) {
       ...spectrum.findings, ...scaling.findings,
     );
     const views = makeViews(img);
+    const faint = faintMarks(img);
+    const strip = faint.marks.length ? faintStrip(faint.view, faint.marks) : null;
+    if (faint.marks.length) {
+      const c = faint.marks.map((m) => m.contrast);
+      findings.push({
+        layer: "pixels",
+        severity: faint.marks.length >= 2 ? "high" : "medium",
+        title: `${faint.marks.length} faint shape${faint.marks.length === 1 ? "" : "s"} hidden in flat colour`,
+        detail: `Each is drawn only ${Math.min(...c)}–${Math.max(...c)} shades (summed over R, G and B) off the colour around it, too faint to notice. See the Faint marks view.`,
+      });
+    }
     mark("pixel checks + views", t);
     step(S.pixels, "done");
 
     state = {
-      width: img.width, height: img.height, texts: [], marks: [], current: "normal",
+      width: img.width, height: img.height, texts: [], marks: [], faint: faint.marks, current: faint.marks.length ? "faint" : "normal",
       viewList: [
         { key: "normal", label: "Normal", img: views.normal, info: VIEW_INFO.normal, boxes: true },
         { key: "high", label: "High saturation", img: views.high, info: VIEW_INFO.high, boxes: true },
         { key: "low", label: "Low saturation", img: views.low, info: VIEW_INFO.low, boxes: true },
+        ...(faint.marks.length ? [{ key: "faint", label: "Faint marks", img: faint.view, boxes: true,
+          info: "Each pixel's difference from the flat colour around it, amplified. Shapes drawn a few shades off their background show up white." }] : []),
         { key: "lsb", label: "Lowest bits", img: lsbPlaneView(img), boxes: true,
           info: "Lowest bit of each colour channel, amplified. Untouched areas look like the image's noise; hidden data looks like static, often in a block at the top." },
         { key: "spectrum", label: "Frequency spectrum", img: spectrum.view,
@@ -395,6 +416,23 @@ async function analyze(file) {
       renderProgress();
       state.texts = mergeOcr(tiles, results);
       findings.push(...ocrFindings(state.texts, img.width, img.height).map((f) => ({ ...f, layer: "ocr" })));
+      if (!stopped && strip) {
+        phaseText = "Reading the faint shapes…";
+        renderProgress();
+        const [read] = await call("florence", { tiles: [{ id: "faint", image: strip }] });
+        const tokens = (read?.labels ?? []).map((t) => t.replace(/<\/?s>|<pad>/g, "").trim()).filter(Boolean);
+        let said = tokens.join(" ");
+        if (tokens.length && tokens.join("").replace(/\s+/g, "").length === faint.marks.length) said = tokens.join("").replace(/\s+/g, "");
+        if (said) {
+          state.faintText = said;
+          findings.push({
+            layer: "ocr", severity: "high",
+            title: `The faint shapes spell “${said}”`,
+            detail: "Read from the hidden shapes in reading order (top to bottom, left to right).",
+            text: said,
+          });
+        }
+      }
       if (!stopped) {
         phaseText = "Looking for logos in the corners…";
         renderProgress();
@@ -419,7 +457,7 @@ async function analyze(file) {
       currentStep = S.vlm; step(S.vlm, "active");
       $("stop").hidden = false;
       $("ai-card").hidden = false;
-      const { images, captions } = buildVlmInputs(views, state.texts, state.marks);
+      const { images, captions } = buildVlmInputs(views, state.texts, state.marks, strip);
       const { system, prompt } = buildPrompt({ captions, findings, texts: state.texts, color, meta });
       $("ai-images").replaceChildren(...images.map((im) => toCanvas(im)));
       $("ai-prompt").textContent = prompt;

@@ -316,6 +316,7 @@ button:disabled { cursor: default; }
 .stage svg rect { fill: none; stroke: #ffd60a; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .stage svg rect.hidden-text { stroke: #ff375f; stroke-dasharray: 6 3; }
 .stage svg rect.mark { stroke: #64d2ff; stroke-width: 2.5; }
+.stage svg rect.faint { stroke: #bf5af2; stroke-width: 2; }
 
 .texts { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 .texts th {
