@@ -39,15 +39,14 @@ async function setup() {
   return { device, f16, keepBoth };
 }
 
-function progress(name) {
-  const files = new Map();
+// Model weights report one whole-model total up front (progress_total), so
+// the bar never jumps backwards when the next file starts. The processor's
+// small files are only recorded (for the stored-files list), not shown.
+function progress(name, showBar = true) {
   return (p) => {
     if (p.status === "initiate") post({ type: "file", model: name, file: p.file, repo: p.name });
-    if (p.status === "progress" && p.total) {
-      files.set(p.file, [p.loaded, p.total]);
-      let loaded = 0, total = 0;
-      for (const [l, t] of files.values()) { loaded += l; total += t; }
-      post({ type: "progress", model: name, loaded, total });
+    if (showBar && p.status === "progress_total" && p.total) {
+      post({ type: "progress", model: name, loaded: p.loaded, total: p.total });
     }
   };
 }
@@ -57,6 +56,7 @@ async function unloadAll(except) {
     if (name === except) continue;
     loaded.delete(name);
     await entry.model.dispose();
+    post({ type: "status", model: name, status: "unloaded" });
   }
 }
 
@@ -88,7 +88,7 @@ async function doLoad(name, f16) {
       : { embed_tokens: "q4", vision_encoder: "q4", decoder_model_merged: "q4" };
     model = await Qwen3VLForConditionalGeneration.from_pretrained(id, { device, dtype, progress_callback });
   }
-  const processor = await AutoProcessor.from_pretrained(id, { progress_callback });
+  const processor = await AutoProcessor.from_pretrained(id, { progress_callback: progress(name, false) });
   const entry = { name, model, processor };
   loaded.set(name, entry);
   timing(`load ${name}`, loadStart);
@@ -203,25 +203,34 @@ async function qwen({ images, system, prompt, maxNewTokens, f16 }) {
 
 const ready = setup();
 
+// One model job at a time. ONNX Runtime stalls when a session is created
+// while another model is running in the same worker (seen as OCR stuck on
+// its first tile while Qwen3-VL loaded), so loads and runs are queued.
+let queue = Promise.resolve();
+function exclusive(job) {
+  const run = queue.then(job, job);
+  queue = run.catch(() => {});
+  return run;
+}
+
 self.onmessage = async ({ data }) => {
   const { id, cmd, args } = data;
   try {
     const caps = await ready;
     if (cmd === "caps") return post({ id, result: caps });
     if (cmd === "stop") { stopRequested = true; return post({ id, result: true }); }
-    if (cmd === "unload") {
-      await unloadAll();
-      return post({ id, result: true });
-    }
-    if (cmd === "preload") {
-      // Warm-up only; never interrupts or replaces a model that's in use.
-      if (!keepBoth && loaded.size) return post({ id, result: false });
-      await load(args.name, caps.f16);
-      return post({ id, result: true });
-    }
-    const fn = { florence, qwen }[cmd];
-    stopRequested = false;
-    const result = await fn({ ...args, f16: caps.f16 });
+    const result = await exclusive(async () => {
+      if (cmd === "unload") { await unloadAll(); return true; }
+      if (cmd === "preload") {
+        // Warm-up only; never replaces a model that's in use on small machines.
+        if (!keepBoth && loaded.size) return false;
+        await load(args.name, caps.f16);
+        return true;
+      }
+      const fn = { florence, qwen }[cmd];
+      stopRequested = false;
+      return fn({ ...args, f16: caps.f16 });
+    });
     post({ id, result });
   } catch (err) {
     console.error(err);

@@ -72,6 +72,7 @@ $("clear").addEventListener("click", async () => {
   try { await clearCache(); } catch {}
   for (const m of ["florence", "qwen"]) { try { localStorage.removeItem(manifestKey(m)); } catch {} }
   storedModels.clear();
+  readyModels.clear();
   $("storage-text").textContent = "Downloaded models removed from this device.";
   $("clear").hidden = true;
 });
@@ -99,23 +100,57 @@ function bar(fraction, text) {
   $("bar-text").textContent = text ?? "";
 }
 
+// One progress state that every source feeds, so the bar doesn't flicker
+// between Florence-2 loading, Qwen loading in the background and OCR.
+const loads = new Map(); // model -> { loaded, total }
+let ocrProgress = null;  // { done, total } while text is being read
+let phaseText = "";      // what the current step is doing, when nothing is loading
+let vlmActive = false;   // the interpretation step has started
+const readyModels = new Set();
+const WRITING = "Qwen3-VL-2B is writing its interpretation…";
+const mb = (b) => Math.round(b / 1e6).toLocaleString();
+
+function loadText(m, l) {
+  const where = storedModels.has(m) ? "Loading" : "Downloading";
+  const bytes = l.total ? ` ${mb(l.loaded)} / ${mb(l.total)} MB` : "";
+  const first = storedModels.has(m) ? "" : " (only the first time)";
+  return `${where} ${MODEL_NAMES[m]}…${bytes}${first}`;
+}
+
+function renderProgress() {
+  if (!running) return; // warm-up on page load reports in the caps line instead
+  // OCR is the main bar once it has started; before that, a model that is
+  // still loading (and that OCR is waiting for) is.
+  if (ocrProgress && (ocrProgress.done > 0 || (readyModels.has("florence") && !loads.size))) {
+    const bg = [...loads].map(([m, l]) => `${MODEL_NAMES[m]} is ${storedModels.has(m) ? "loading" : "downloading"} in the background${l.total ? ` (${Math.round((l.loaded / l.total) * 100)}%)` : ""}`);
+    bar(ocrProgress.done / ocrProgress.total, [`Reading text: part ${ocrProgress.done} of ${ocrProgress.total}`, ...bg].join(" · "));
+  } else if (loads.size) {
+    let loaded = 0, total = 0;
+    for (const l of loads.values()) { loaded += l.loaded; total += l.total; }
+    bar(total ? loaded / total : 0, [...loads].map(([m, l]) => loadText(m, l)).join(" · "));
+  } else if (ocrProgress) {
+    bar(0, `Getting ${MODEL_NAMES.florence} ready…`); // about to report loading
+  } else {
+    bar(null, phaseText);
+  }
+}
+
 window.__timings = [];
 listeners.add((m) => {
   if (m.type === "timing") { window.__timings.push(m); console.debug("timing", m); }
   if (m.type === "file" && fileUrls[m.model]) fileUrls[m.model].add(`https://huggingface.co/${m.repo}/resolve/main/${m.file}`);
-  if (m.type === "progress") {
-    const mb = `${(m.loaded / 1e6).toFixed(0)} / ${(m.total / 1e6).toFixed(0)} MB`;
-    bar(m.loaded / m.total, storedModels.has(m.model)
-      ? `Loading ${MODEL_NAMES[m.model]} from this device… ${mb}`
-      : `Downloading ${MODEL_NAMES[m.model]}… ${mb} (only the first time)`);
-  }
-  if (m.type === "status" && m.status === "loading") bar(null, `Loading ${MODEL_NAMES[m.model]}…`);
+  if (m.type === "status" && m.status === "loading") { loads.set(m.model, { loaded: 0, total: 0 }); renderProgress(); }
+  if (m.type === "progress" && loads.has(m.model)) { loads.set(m.model, { loaded: m.loaded, total: m.total }); renderProgress(); }
+  if (m.type === "status" && m.status === "unloaded") readyModels.delete(m.model);
   if (m.type === "status" && m.status === "ready") {
+    readyModels.add(m.model);
+    if (m.model === "qwen" && vlmActive) phaseText = WRITING;
+    loads.delete(m.model);
     writeManifest(m.model);
     navigator.storage?.persist?.().catch(() => {});
-    bar(null, "");
+    renderProgress();
   }
-  if (m.type === "tile") bar(m.done / m.total, `Reading text: part ${m.done} of ${m.total}`);
+  if (m.type === "tile") { ocrProgress = { done: m.done, total: m.total }; renderProgress(); }
   if (m.type === "token") $("ai").textContent += m.text;
 });
 
@@ -328,14 +363,15 @@ async function analyze(file) {
     $("text-card").hidden = !useOcr;
     $("results").hidden = false;
 
-    // Load Qwen while OCR runs instead of afterwards (when both fit in memory).
-    if (useVlm && useOcr && caps?.keepBoth) call("preload", { name: "qwen" }).catch(() => {});
-
     if (useOcr) {
       currentStep = S.ocr; step(S.ocr, "active");
       $("stop").hidden = false;
       const tiles = makeTiles(views);
+      ocrProgress = { done: 0, total: tiles.length };
+      renderProgress();
       const results = await call("florence", { tiles: tiles.map(({ id, image }) => ({ id, image })) });
+      ocrProgress = null;
+      renderProgress();
       state.texts = mergeOcr(tiles, results);
       findings.push(...ocrFindings(state.texts, img.width, img.height).map((f) => ({ ...f, layer: "ocr" })));
       renderFindings(findings);
@@ -355,6 +391,10 @@ async function analyze(file) {
       const { system, prompt } = buildPrompt({ captions, findings, texts: state.texts, color, meta });
       $("ai-images").replaceChildren(...images.map((im) => toCanvas(im)));
       $("ai-prompt").textContent = prompt;
+      vlmActive = true;
+      // If Qwen still has to load, its loading line shows first and the
+      // "writing" line follows once it's ready (no flash of the wrong text).
+      if (readyModels.has("qwen")) { phaseText = WRITING; renderProgress(); }
       const res = await call("qwen", { images, system, prompt, maxNewTokens: 450 });
       $("ai").textContent = res.text.trim();
       $("ai").dataset.looped = res.looped ? "1" : "";
@@ -371,6 +411,8 @@ async function analyze(file) {
     step(currentStep, "failed");
     bar(null, `Couldn't finish "${currentStep}": ${err.message ?? err}`);
   } finally {
+    phaseText = "";
+    vlmActive = false;
     $("stop").hidden = true;
     running = false;
     setInputs(true);
