@@ -4,11 +4,24 @@ Find text, watermarks, colour patterns and hidden data in an image, with AI mode
 
 **[▶ Try the live demo on Hugging Face Spaces](https://huggingface.co/spaces/GHeart01/ai-image-decoder)**
 
-![AI Image Decoder: monospace interface with a translucent top bar, drop zone, four demo previews (alpine lake, colour stripes, ribbons, harbour) and switches for the two models](screenshot.jpg)
+<table>
+  <tr>
+    <td width="50%"><img src="headline-normal.jpg" alt="Twenty flat colour stripes. Purple boxes mark seven spots where the app found something, invisible to the eye."></td>
+    <td width="50%"><img src="headline-faint-marks.jpg" alt="The Faint marks view of the same image: the stripes vanish and the letters R, E, A, C, H, E and S light up white inside the boxes."></td>
+  </tr>
+  <tr>
+    <td><b>What you see:</b> twenty colour stripes. The purple boxes mark where the app found something you can't see.</td>
+    <td><b>What the app sees:</b> seven letters, each only 5–18 shades off its stripe. Read in order, they spell <b>REACHES</b>.</td>
+  </tr>
+</table>
+
+Run this image through the app and it reports: **7 faint shapes hidden in flat colour** and **The faint shapes spell “REACHES”**. Try it yourself: it's the *Colour stripes* demo in the [live app](https://huggingface.co/spaces/GHeart01/ai-image-decoder).
 
 ## Real demos
 
 Both images below are one-click demos in the app, and everything shown is the app's actual output.
+
+![AI Image Decoder: monospace interface with a translucent top bar, drop zone, four demo previews (alpine lake, colour stripes, ribbons, harbour) and switches for the two models](screenshot.jpg)
 
 <p>
   <img src="../demo/alpine-lake-chatgpt.png" width="62%" alt="ChatGPT-generated alpine lake at sunset">
@@ -27,12 +40,6 @@ Both images below are one-click demos in the app, and everything shown is the ap
 The faint-mark check finds seven shapes that differ from their stripe by only a few shades, lines them up in reading order and reads them: **REACHES**.
 
 ![Findings for the colour stripes image: 7 faint shapes hidden in flat colour, and the faint shapes spell REACHES, followed by Qwen3-VL-2B's interpretation](stripes-findings.jpg)
-
-### Colour stripes: the Faint marks view
-
-Each pixel's difference from the flat colour around it, amplified. The stripes disappear and the hidden letters light up.
-
-![Faint marks view of the colour stripes image: the letters R, E, A, C, H, E and S boxed in purple on black](stripes-faint-marks.jpg)
 
 ### Alpine lake: findings and AI interpretation
 
