@@ -23,7 +23,7 @@ Every analysis scans the pixels the way steganography tools write into them: 60 
 
 The Decoder panel lists the hits. Open one, or pick any channels and bits yourself, to see that bit plane as a picture, read a hex dump of the bytes, and save them. Embedded files are cut at their real end (PNG `IEND`, the JPEG end marker, the ZIP directory record, PDF `%%EOF`). Data appended after the end of the image file can be saved from the File card.
 
-![The Decoder panel on the Harbour sample: two hits, the second in bit 1 of blue read column by column, a Base64 string that decodes to “Second layer: the boat leaves at six.”, the channel and bit controls, and that bit plane as a black-and-white picture](decoder.jpg)
+![The Decoder panel on the Harbour sample: two hits (a sentence in the lowest bits, and Base64 in bit 1 of blue that decodes to “Second layer: the boat leaves at six.”), the whole-image search reporting nothing more, and the grid of all 24 bit planes, where the G · bit 0 tile shows LOOK DEEPER](decoder.jpg)
 
 More tools in the panel:
 
@@ -32,7 +32,9 @@ More tools in the panel:
 - **Pixel readout.** Point at any picture to see that pixel's position, RGB values, hex colour and lowest four bits per channel.
 - **QR codes** are looked for in the picture, its saturated view and the two lowest bit planes of each channel, in a background worker. A code hidden in a single bit plane is reported as hidden data.
 
-![The bit-plane grid on the Harbour sample: 24 tiles, rows R, G and B, bits 7 to 0. The “G · bit 0” tile is selected and shows the words LOOK DEEPER, which are invisible in the image](plane-grid.jpg)
+![Green's lowest bit on the Harbour sample, full size: the words LOOK DEEPER stand out in a black box. Under the picture, the pixel readout shows x 978, y 871, the RGB values, the hex colour and the lowest four bits of each channel](plane-readout.jpg)
+
+![A QR code hidden in bit 0 of red: the finding gives the URL it holds, and a green box marks where it is, although nothing shows in the normal picture](qr-finding.jpg)
 
 The Harbour sample hides three messages in its bits. The scan reads the first in the lowest bit of R, G and B, and the second in bit 1 of blue, read column by column, as Base64. The third, “LOOK DEEPER”, is drawn as a picture into green's lowest bit, so no byte scan can read it: the grid shows it, Florence-2 reads it from that plane, and it's reported as hidden text.
 
@@ -41,10 +43,28 @@ The Harbour sample hides three messages in its bits. The scan reads the first in
 The decoders read bytes; the models read pictures. That covers hiding that byte scans and statistics can't see:
 
 - **Pictures hidden in bits.** Words, a logo or a second image drawn into one bit plane come out of a byte scan as gibberish. Florence-2 reads text in the lowest plane of each channel (ignoring the echoes of the picture's own visible text), and Qwen3-VL-2B gets a grid of the two lowest planes of each channel to look for anything else.
+- **Words formed by the scene.** AI “illusion” images arrange clouds, trees or patterns into words you only see when you squint. The Squint view does the squinting (shrink to a few dozen pixels, blur, stretch contrast), Florence-2 reads it, and Qwen gets it as an extra picture.
 - **Codes drawn in the scene.** Morse dots and dashes, binary as marks, braille, pigpen, objects that are deliberately counted or placed. These are shapes, not bits.
 - **Meaning.** Connecting recovered messages to each other and to the picture (“the third stone from the lighthouse” in a picture of a lighthouse), and suggesting where to look next.
 
 What it can't do: read bits itself, or be fully trusted. At 2B parameters it can miss things or invent them, so the decoders produce the evidence and the model only interprets it.
+
+### Tested: can the models find words and figures hidden in a scene?
+
+Two AI-generated illusion images: clouds spelling **FIND ME** over a valley, and a **fox's head** outlined in sunset clouds.
+
+| | Hidden words (FIND ME) | Hidden figure (fox) |
+|---|---|---|
+| Qwen3-VL-2B on the full picture | Missed: "a normal landscape" | Missed: "nothing hidden" |
+| Qwen3-VL-2B on the squint view, asked directly | Missed | Missed |
+| Florence-2 captions or object detection on the squint view | Noise ("vehicle", "horse") | Noise ("toilet", "window") |
+| **Florence-2 reading the squint view** | **Found: "FINDMEI"** (FIND ME plus a stray stroke) | — |
+
+So hidden *words* are found, by squinting and reading rather than by asking the AI to look, and Qwen then explains them. Hidden *figures* like the fox are beyond both small models; seeing them reliably would need a larger vision model than a laptop browser can run, or a dedicated shape classifier. The Squint view still shows the fox to a person.
+
+![The Squint view of the valley image: shrunk, blurred and in grey, the clouds clearly spell FIND ME](squint-view.jpg)
+
+![Qwen3-VL-2B's steganalysis of the valley image: hidden content found, the scene's shapes spell “FINDMEI”, an illusion image](valley-steganalysis.jpg)
 
 ## Real demos
 
@@ -68,7 +88,9 @@ All of these are one-click demos in the app, and everything shown is the app's a
 
 The faint-mark check finds seven shapes that differ from their stripe by only a few shades, lines them up in reading order and reads them: **REACHES**.
 
-![Findings for the colour stripes image (the faint shapes spell REACHES) followed by Qwen3-VL-2B's steganalysis: verdict, recovered payload, hiding technique, what it means and next steps](stripes-findings.jpg)
+![Findings for the colour stripes image (the faint shapes spell REACHES) followed by Qwen3-VL-2B's steganalysis under six headings: verdict, recovered payloads, visual clues, hiding technique, what it means](stripes-findings.jpg)
+
+The report gets the payload right but also shows the model's limits: its hiding-technique line claims “bit-level manipulation”, which the findings don't support. The letters are a few shades off, not hidden in the bits. That's why the findings come first.
 
 ### More demos in the app
 
@@ -83,6 +105,7 @@ The faint-mark check finds seven shapes that differ from their stripe by only a 
 | **Content credentials** | Reads the C2PA manifest: declared source (camera, AI-generated, AI-edited…), the tool that made it, and recorded steps such as edits or an added invisible watermark | none |
 | **Hidden bits** | Scans 60 channel, bit and order combinations (84 with alpha) for text and file signatures, strips tool framing, and decodes Base64, hex and binary. Also runs a chi-square attack, and compares aligned and misaligned value pairs in flat areas, counting only scattered flips (a solid faint shape isn't noise) | none |
 | **Bit planes and colours** | Any bit of any channel as a picture, and a random colour map that gives every distinct colour its own colour, so shades one step apart stand out | none |
+| **Squint** | Shrinks the picture to a few dozen pixels across, blurs it and stretches contrast, so words formed by clouds or patterns stand out; Florence-2 reads the result | Florence-2-base |
 | **Text in bit planes** | Reads the lowest bit plane of each channel as a picture and keeps words that aren't also visible in the image | Florence-2-base |
 | **QR codes** | jsQR over the picture, its saturated view and the two lowest bit planes of each channel | none |
 | **Faint marks** | In flat-colour artwork: shapes enclosed by one flat area and only a few shades off its colour. Shown amplified in a Faint marks view, lined up in reading order and read with OCR | Florence-2-base (to read them) |

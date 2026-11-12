@@ -1,7 +1,7 @@
 import { decodeImage } from "./lib/decode.js";
 import { analyzeContainer } from "./lib/metadata.js";
 import { analyzeLsb, analyzeSpectrum, analyzeColor, scalingAttackCheck, lsbPlaneView, fitSize, faintMarks, faintStrip } from "./lib/forensics.js";
-import { makeViews, VIEW_INFO } from "./lib/views.js";
+import { makeViews, VIEW_INFO, squintView } from "./lib/views.js";
 import { makeTiles, mergeOcr, ocrFindings, buildVlmInputs, buildPrompt, cornerCrops, cornerMarks, cornerMarkFindings, planeOcrTiles, planeOcrFindings } from "./lib/pipeline.js";
 import { cacheStatus, clearCache } from "./lib/opfs-cache.js";
 import { makeSample, drawSamplePreview } from "./lib/sample.js";
@@ -662,6 +662,7 @@ async function analyze(file) {
       ...spectrum.findings, ...scaling.findings,
     );
     const views = makeViews(img);
+    views.squint = squintView(img);
     const faint = faintMarks(img);
     const strip = faint.marks.length ? faintStrip(faint.view, faint.marks) : null;
     if (faint.marks.length) {
@@ -685,6 +686,7 @@ async function analyze(file) {
         { key: "normal", label: "Normal", img: views.normal, info: VIEW_INFO.normal, boxes: true },
         { key: "high", label: "High saturation", img: views.high, info: VIEW_INFO.high, boxes: true },
         { key: "low", label: "Low saturation", img: views.low, info: VIEW_INFO.low, boxes: true },
+        { key: "squint", label: "Squint", img: views.squint, info: VIEW_INFO.squint, boxes: true },
         ...(faint.marks.length ? [{ key: "faint", label: "Faint marks", img: faint.view, boxes: true,
           info: "Each pixel's difference from the flat colour around it, amplified. Shapes drawn a few shades off their background show up white." }] : []),
         { key: "colours", label: "Random colours", img: colourMapView(img), boxes: true,
@@ -737,6 +739,24 @@ async function analyze(file) {
         }
       }
       if (!stopped) {
+        // Words formed by the scene's large shapes (clouds, trees): read the
+        // squint view, keep what normal reading didn't already find.
+        phaseText = "Squinting for words in the scene…";
+        renderProgress();
+        const sq = views.squint;
+        const stile = [{ id: "squint", ch: "squint", bit: -1, sx: img.width / sq.width, sy: img.height / sq.height, image: sq }];
+        const sres = await call("florence", { tiles: [{ id: "squint", image: sq }] });
+        state.squintTexts = planeOcrFindings(stile, sres, state.texts);
+        for (const q of state.squintTexts) {
+          findings.push({
+            layer: "ocr", severity: "high", payload: true,
+            title: `The scene's shapes spell “${q.text}”`,
+            detail: "Read from the Squint view, where fine detail is blurred away and only large light and dark shapes remain. Clouds, trees or patterns are arranged to form these words; they're easy to miss at full size. Read by Florence-2, so check it in the Squint view.",
+            text: q.text,
+          });
+        }
+      }
+      if (!stopped) {
         phaseText = "Reading the lowest bit planes…";
         renderProgress();
         const ptiles = planeOcrTiles(img);
@@ -785,19 +805,21 @@ async function analyze(file) {
       currentStep = S.vlm; step(S.vlm, "active");
       $("stop").hidden = false;
       $("ai-card").hidden = false;
-      const { images, captions } = buildVlmInputs(views, state.texts, state.marks, strip, planeSheet(img, { bits: [0, 1], tile: 400 }));
+      const { images, captions } = buildVlmInputs(views, state.texts, state.marks, strip, planeSheet(img, { bits: [0, 1], tile: 400 }), squintView(img, { cols: 56, width: 640 }));
       const payloads = [];
       for (const m of lsb.messages) {
         const last = m.decoded?.at(-1);
         if (m.kind === "file") payloads.push({ where: m.order, text: `a ${m.label}` });
         else payloads.push({ where: m.order, text: last ? `${m.preview.slice(0, 60)}… which decodes (${m.decoded.map((l) => l.encoding).join(", then ")}) to: ${last.text ?? `a ${last.file.label}`}` : m.message });
       }
+      for (const q of state.squintTexts ?? []) payloads.push({ where: "words formed by the scene's large shapes, readable when squinting", text: q.text });
       for (const p of state.planeTexts ?? []) payloads.push({ where: `words drawn into bit ${p.bit} of ${p.ch} (a picture in the bits, read by OCR)`, text: p.text });
       for (const c of state.codes ?? []) payloads.push({ where: `a QR code in ${c.label}`, text: c.text });
       if (meta.trailing) payloads.push({ where: `data appended after the end of the image${meta.trailing.embedded ? ` (${meta.trailing.embedded})` : ""}`, text: meta.trailing.strings.join(" ") || `${meta.trailing.length} bytes` });
       if (state.faintText) payloads.push({ where: "near-invisible shapes in flat colour, read in order", text: state.faintText });
       const techniques = [];
       for (const m of lsb.messages) techniques.push(`LSB replacement: ${m.kind === "file" ? "a file" : "text"} in ${[...m.cfg.channels].join(",")} bit ${m.cfg.bits.join("+")}, ${m.cfg.order === "cols" ? "by columns" : "by rows"}${m.framing ? `, ${m.framing}` : ""}${m.decoded?.length ? `, ${m.decoded.map((l) => l.encoding).join(" + ")}-encoded` : ""}`);
+      if (state.squintTexts?.length) techniques.push("an illusion image: clouds, trees or patterns in the scene are shaped to form words, visible when squinting");
       if (state.planeTexts?.length) techniques.push("text drawn as a picture into a single bit plane, invisible in the image and unreadable as bytes");
       for (const c of state.codes ?? []) techniques.push(c.inPlane ? `a QR code drawn into ${c.label}, invisible in the normal picture` : `a visible QR code in ${c.label}`);
       if (meta.trailing) techniques.push("a file appended after the image's end marker, which viewers ignore");

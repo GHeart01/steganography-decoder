@@ -29,6 +29,7 @@ Safari 26+).
 | Content credentials | C2PA manifest: declared source (e.g. AI-generated), the tool that made it, and recorded steps such as an added invisible watermark. Not signature-verified | none |
 | Hidden bits | Scans 60 channel, bit and order combinations (84 with alpha) for text and file signatures; strips tool framing (Stegano length prefix, end markers); decodes Base64, hex and binary. Plus a chi-square attack and aligned-pair analysis of flat areas | none |
 | Decoder | Any bit plane as a picture, a grid of all planes, a whole-image search, a pixel readout, a hex dump, and saving the bytes; embedded files cut at their real end; appended data saveable | none |
+| Squint | The picture shrunk, blurred and contrast-stretched, so words formed by clouds or patterns stand out; read by OCR | Florence-2-base |
 | Text in bit planes | Reads the lowest plane of each channel as a picture; keeps words not visible in the image | Florence-2-base |
 | QR codes | jsQR over the picture and the two lowest bit planes of each channel | none |
 | Faint marks | In flat-colour artwork, shapes only a few shades off the flat area around them; shown amplified and read in order | Florence-2-base |

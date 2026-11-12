@@ -6,7 +6,7 @@ import fs from "node:fs";
 import { encode, decode } from "fast-png";
 import {
   extractBits, scanLsb, scanConfigs, normalizeCfg, decodeLayers, cleanMessage, carveFile, fileTypeAt,
-  bitPlaneView, colourMapView, hexDump, describeCfg, cfgCode, hitPayload, deepScan, planeSheet,
+  bitPlaneView, colourMapView, hexDump, describeCfg, cfgCode, hitPayload, deepScan, planeSheet, plausibleWords,
 } from "../lib/stego.js";
 import { analyzeLsb, faintMarks } from "../lib/forensics.js";
 
@@ -254,4 +254,24 @@ test("no QR codes in clean images", async () => {
   for (const img of [photo(17), loadPng("../demo/quiet-signal.png")]) {
     assert.deepEqual(await findCodes(img, codeSources(img), jsQR), []);
   }
+});
+
+test("smooth gradients: repeating bit patterns are not taken for text, even in a whole-image search", () => {
+  // Noise-free gradients like the Harbour sample's sky and sea.
+  const W2 = 640, H2 = 360, data = new Uint8Array(W2 * H2 * 4);
+  for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+    const o = (y * W2 + x) * 4;
+    data[o] = 244 - (y * 40) / H2 + (x * 6) / W2; data[o + 1] = 215 - (y * 30) / H2; data[o + 2] = 181 + (y * 50) / H2; data[o + 3] = 255;
+  }
+  const img = { width: W2, height: H2, data };
+  assert.deepEqual(scanLsb(img), []);
+  assert.deepEqual(deepScan(img).map((h) => h.preview.slice(0, 30)), []);
+  assert.deepEqual(decodeLayers("4sG4sG4sG4sG4sC$2C$2C$2C$;g"), []);
+});
+
+test("whole-image search: junk runs are rejected, real sentences are kept", () => {
+  assert.equal(plausibleWords("U&eVivfEFP&b^a^fueWfgZe"), false);
+  assert.equal(plausibleWords("VEUUUVffe&UfiFeVf UU"), false);
+  assert.equal(plausibleWords("THE QUIETEST SIGNAL CARRIES THE MESSAGE"), true);
+  assert.equal(plausibleWords("Buried deep in the middle of the image, past the scan window."), true);
 });

@@ -479,3 +479,21 @@ test("bit-plane OCR keeps hidden words, drops visible text echoes and junk", () 
   assert.deepEqual(found.map((f) => [f.ch, f.bit, f.text]), [["G", 0, "LOOK DEEPER"]]);
   assert.equal(found[0].box.x0, 200); // scaled back to full size
 });
+
+import { squintView } from "../lib/views.js";
+
+test("squint view keeps big shapes and drops fine detail", () => {
+  // Fine checkerboard (detail) with a big bright square (a shape).
+  const W = 400, H = 200, data = new Uint8Array(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const o = (y * W + x) * 4, inSquare = x > 150 && x < 250 && y > 50 && y < 150;
+    const v = inSquare ? 230 : ((x + y) % 2 ? 140 : 100);
+    data[o] = data[o + 1] = data[o + 2] = v; data[o + 3] = 255;
+  }
+  const sq = squintView({ width: W, height: H, data }, { cols: 40, width: 400 });
+  assert.equal(sq.width, 400);
+  assert.equal(sq.height, 200);
+  const at = (x, y) => sq.data[(y * sq.width + x) * 4];
+  assert.ok(at(200, 100) > 200, "square stays bright");
+  assert.ok(Math.abs(at(40, 40) - at(41, 40)) < 3, "checkerboard is smoothed away");
+});
