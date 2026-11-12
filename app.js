@@ -2,16 +2,21 @@ import { decodeImage } from "./lib/decode.js";
 import { analyzeContainer } from "./lib/metadata.js";
 import { analyzeLsb, analyzeSpectrum, analyzeColor, scalingAttackCheck, lsbPlaneView, fitSize, faintMarks, faintStrip } from "./lib/forensics.js";
 import { makeViews, VIEW_INFO } from "./lib/views.js";
-import { makeTiles, mergeOcr, ocrFindings, buildVlmInputs, buildPrompt, cornerCrops, cornerMarks, cornerMarkFindings } from "./lib/pipeline.js";
+import { makeTiles, mergeOcr, ocrFindings, buildVlmInputs, buildPrompt, cornerCrops, cornerMarks, cornerMarkFindings, planeOcrTiles, planeOcrFindings } from "./lib/pipeline.js";
 import { cacheStatus, clearCache } from "./lib/opfs-cache.js";
 import { makeSample, drawSamplePreview } from "./lib/sample.js";
+import { codeFindings } from "./lib/codes.js";
 import {
   extractBits, capacity, fileTypeAt, carveFile, looksLikeText, printableRun, asLatin1, decodeLayers,
   bitPlaneView, colourMapView, hexDump, describeCfg, cfgCode, normalizeCfg, scanConfigs, CHANNEL_SETS, hitPayload,
+  deepScanOne, dropOverlaps, planeThumb, planeSheet,
 } from "./lib/stego.js";
 
 const $ = (id) => document.getElementById(id);
 const tick = () => new Promise((r) => setTimeout(r, 0));
+// Yield to the page without a timer: background tabs throttle timers to a
+// second or more, which turned a 1 s QR scan into 48 s.
+const yieldNow = () => new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = () => r(); c.port2.postMessage(0); });
 const MODEL_NAMES = { florence: "Florence-2", qwen: "Qwen3-VL-2B" };
 const SEVERITY = ["high", "medium", "low", "info"];
 
@@ -204,7 +209,7 @@ function toCanvas(img, canvas = document.createElement("canvas")) {
 
 // Lay out the report: the five headings as headings, everything else as
 // bullets. The model sometimes writes "- Verdict: text" on one line.
-const AI_HEADINGS = ["Verdict", "Recovered payloads", "Hiding technique", "What it means", "Next steps"];
+const AI_HEADINGS = ["Verdict", "Recovered payloads", "Visual clues", "Hiding technique", "What it means", "Next steps"];
 function renderAi(text) {
   const box = $("ai");
   box.replaceChildren();
@@ -222,6 +227,25 @@ function renderAi(text) {
       box.append(el("p", "ai-b", line.replace(/^[-*•]\s*/, "")));
     }
   }
+}
+
+
+// Runs lib/codes.js in qr-worker.js. Resolves to [] if anything fails: QR
+// scanning is a bonus, not worth failing an analysis over.
+function scanCodes(img, views) {
+  return new Promise((resolve) => {
+    let w;
+    try { w = new Worker(new URL("./qr-worker.js", import.meta.url), { type: "module" }); } catch { resolve([]); return; }
+    const t = performance.now();
+    w.onmessage = ({ data }) => {
+      window.__timings?.push({ label: "QR scan (worker)", ms: Math.round(performance.now() - t) });
+      if (data.error) console.warn("QR scan failed:", data.error);
+      w.terminate();
+      resolve(data.codes ?? []);
+    };
+    w.onerror = (e) => { console.warn("QR worker error:", e.message); w.terminate(); resolve([]); };
+    w.postMessage({ img, views: { high: views.high, low: views.low } });
+  });
 }
 
 let state = null;
@@ -250,6 +274,14 @@ function renderView(name) {
       r.setAttribute("width", m.box.x1 - m.box.x0 + 8); r.setAttribute("height", m.box.y1 - m.box.y0 + 8);
       r.setAttribute("rx", 4);
       r.setAttribute("class", "faint");
+      svg.append(r);
+    }
+    for (const c of state.codes ?? []) {
+      const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      r.setAttribute("x", c.box.x0 - 6); r.setAttribute("y", c.box.y0 - 6);
+      r.setAttribute("width", c.box.x1 - c.box.x0 + 12); r.setAttribute("height", c.box.y1 - c.box.y0 + 12);
+      r.setAttribute("rx", 6);
+      r.setAttribute("class", "code");
       svg.append(r);
     }
     for (const m of state.marks) {
@@ -401,6 +433,7 @@ function renderDecoder() {
   const { img, cfg } = dec;
   for (const [i, li] of [...$("hits").children].entries()) li.setAttribute("aria-current", String(i === dec.current));
   renderDecoderControls();
+  markPlaneGrid();
   toCanvas(bitPlaneView(img, cfg), $("plane"));
   const hit = dec.current != null ? dec.hits[dec.current] : null;
   // Dump from where the hit starts, so the bytes shown are the ones described.
@@ -461,9 +494,90 @@ function renderHits(hits, tried) {
   }));
 }
 
+// Grid of every bit of every channel. Drawn once per image; clicking a tile
+// opens that single bit in the decoder.
+function renderPlaneGrid() {
+  const { img } = dec;
+  const chans = scanConfigs(img).some((x) => x.channels.includes("A")) ? ["R", "G", "B", "A"] : ["R", "G", "B"];
+  const tw = 160, th = Math.max(1, Math.round((tw * img.height) / img.width));
+  const items = [];
+  for (const ch of chans) for (let bit = 7; bit >= 0; bit--) {
+    const b = el("button");
+    b.type = "button";
+    b.dataset.ch = ch;
+    b.dataset.bit = bit;
+    b.setAttribute("aria-label", `Bit ${bit} of ${ch}`);
+    b.append(toCanvas(planeThumb(img, ch, bit, tw, th)), el("span", "", `${ch} · bit ${bit}`));
+    b.addEventListener("click", () => setCfg({ channels: ch, bits: [bit] }));
+    items.push(b);
+  }
+  $("plane-grid").replaceChildren(...items);
+}
+function markPlaneGrid() {
+  const c = dec.cfg;
+  for (const b of $("plane-grid").children) {
+    b.setAttribute("aria-pressed", String(c.channels === b.dataset.ch && c.bits.length === 1 && c.bits[0] === Number(b.dataset.bit)));
+  }
+}
+
+$("deep-scan").addEventListener("click", async () => {
+  if (!dec || dec.searching) return;
+  dec.searching = true;
+  const btn = $("deep-scan");
+  btn.disabled = true;
+  const configs = scanConfigs(dec.img);
+  const fresh = [];
+  const known = new Set(dec.hits.map((h) => (h.kind === "text" ? h.message : `file:${h.label}:${h.offset}`)));
+  try {
+    for (const [i, cfg] of configs.entries()) {
+      $("deep-info").textContent = `Searching ordering ${i + 1} of ${configs.length}…`;
+      await (i % 6 ? yieldNow() : tick()); // a real frame now and then so the text updates
+      for (const h of deepScanOne(dec.img, cfg)) {
+        const key = h.kind === "text" ? h.message : `file:${h.label}:${h.offset}`;
+        if (known.has(key)) continue;
+        known.add(key);
+        fresh.push(h);
+      }
+    }
+    const added = dropOverlaps(fresh);
+    dec.hits = [...dec.hits, ...added];
+    renderHits(dec.hits, configs.length);
+    renderDecoder();
+    $("deep-info").textContent = added.length
+      ? `Found ${added.length} more, added to the list above.`
+      : `Read every bit of all ${configs.length} orderings: nothing beyond what's listed${dec.hits.length ? " above" : ""}.`;
+  } finally {
+    dec.searching = false;
+    btn.disabled = false;
+  }
+});
+
+// Pixel readout under a picture: position, RGBA, and the lowest four bits.
+function inspector(canvas, out, getImg) {
+  const show = (e) => {
+    const img = getImg();
+    if (!img) return;
+    const r = canvas.getBoundingClientRect();
+    const x = Math.floor(((e.clientX - r.left) / r.width) * img.width);
+    const y = Math.floor(((e.clientY - r.top) / r.height) * img.height);
+    if (x < 0 || y < 0 || x >= img.width || y >= img.height) return;
+    const o = (y * img.width + x) * 4;
+    const px = [...img.data.subarray(o, o + 4)];
+    const hex = px.slice(0, 3).map((v) => v.toString(16).padStart(2, "0")).join("");
+    const low = ["R", "G", "B"].map((c, i) => `${c} ${(px[i] & 15).toString(2).padStart(4, "0")}`).join("  ");
+    out.textContent = `x ${x}, y ${y} · R ${px[0]} G ${px[1]} B ${px[2]}${px[3] !== 255 ? ` A ${px[3]}` : ""} · #${hex} · low 4 bits: ${low}`;
+  };
+  canvas.addEventListener("pointermove", show);
+  canvas.addEventListener("pointerdown", show);
+}
+inspector($("plane"), $("plane-inspect"), () => dec?.img);
+inspector($("view"), $("view-inspect"), () => state?.img);
+
 function setupDecoder(img, lsb) {
   dec = { img, hits: lsb.messages, current: lsb.messages.length ? 0 : null, cfg: normalizeCfg(lsb.messages[0]?.cfg ?? {}) };
+  $("deep-info").textContent = "The automatic scan reads the first 4 KB of each ordering. This reads every bit (about a second).";
   renderHits(lsb.messages, scanConfigs(img).length);
+  renderPlaneGrid();
   renderDecoder();
 }
 
@@ -504,8 +618,8 @@ async function analyze(file) {
   const S = {
     read: "Read the image",
     file: "Check the file structure",
-    pixels: "Check pixels, colours and patterns",
-    ocr: "Read text and look for corner logos",
+    pixels: "Check pixels, colours, patterns and QR codes",
+    ocr: "Read text, bit planes and corner logos",
     vlm: "Steganalysis with Qwen3-VL-2B",
   };
   setSteps([S.read, S.file, S.pixels, ...(useOcr ? [S.ocr] : []), ...(useVlm ? [S.vlm] : [])]);
@@ -560,10 +674,13 @@ async function analyze(file) {
       });
     }
     mark("pixel checks + views", t);
+    // QR codes: scanned in a separate worker while the rest carries on;
+    // collected before the findings are shown in full.
+    const qrDone = scanCodes(img, views);
     step(S.pixels, "done");
 
     state = {
-      width: img.width, height: img.height, texts: [], marks: [], faint: faint.marks, current: faint.marks.length ? "faint" : "normal",
+      img, codes: [], width: img.width, height: img.height, texts: [], marks: [], faint: faint.marks, current: faint.marks.length ? "faint" : "normal",
       viewList: [
         { key: "normal", label: "Normal", img: views.normal, info: VIEW_INFO.normal, boxes: true },
         { key: "high", label: "High saturation", img: views.high, info: VIEW_INFO.high, boxes: true },
@@ -620,6 +737,21 @@ async function analyze(file) {
         }
       }
       if (!stopped) {
+        phaseText = "Reading the lowest bit planes…";
+        renderProgress();
+        const ptiles = planeOcrTiles(img);
+        const pres = await call("florence", { tiles: ptiles.map(({ id, image }) => ({ id, image })) });
+        state.planeTexts = planeOcrFindings(ptiles, pres, state.texts);
+        for (const p of state.planeTexts) {
+          findings.push({
+            layer: "hidden", severity: "high", payload: true,
+            title: `Text drawn into bit ${p.bit} of ${p.ch}: “${p.text}”`,
+            detail: `Invisible in the picture: it only shows when that bit is displayed on its own, around x=${Math.round(p.box.x0)}, y=${Math.round(p.box.y0)}. Click the ${p.ch} · bit ${p.bit} tile in the Decoder to see it. Read by Florence-2, so check the spelling against the tile.`,
+            text: p.text,
+          });
+        }
+      }
+      if (!stopped) {
         phaseText = "Looking for logos in the corners…";
         renderProgress();
         const crops = cornerCrops(img);
@@ -636,6 +768,16 @@ async function analyze(file) {
       step(S.ocr, stopped ? "failed" : "done");
     }
 
+    if (!useOcr) { phaseText = "Looking for QR codes…"; renderProgress(); }
+    state.codes = await qrDone;
+    phaseText = "";
+    renderProgress();
+    if (state.codes.length) {
+      findings.push(...codeFindings(state.codes).map((f) => ({ ...f, layer: f.payload ? "hidden" : "pixels" })));
+      renderFindings(findings);
+      renderView(state.current);
+    }
+
     if (stopped) {
       if (useVlm) step(S.vlm, "failed");
       bar(null, "Stopped. Results above are from the steps that finished.");
@@ -643,17 +785,21 @@ async function analyze(file) {
       currentStep = S.vlm; step(S.vlm, "active");
       $("stop").hidden = false;
       $("ai-card").hidden = false;
-      const { images, captions } = buildVlmInputs(views, state.texts, state.marks, strip, state.viewList.find((v) => v.key === "lsb").img);
+      const { images, captions } = buildVlmInputs(views, state.texts, state.marks, strip, planeSheet(img, { bits: [0, 1], tile: 400 }));
       const payloads = [];
       for (const m of lsb.messages) {
         const last = m.decoded?.at(-1);
         if (m.kind === "file") payloads.push({ where: m.order, text: `a ${m.label}` });
         else payloads.push({ where: m.order, text: last ? `${m.preview.slice(0, 60)}… which decodes (${m.decoded.map((l) => l.encoding).join(", then ")}) to: ${last.text ?? `a ${last.file.label}`}` : m.message });
       }
+      for (const p of state.planeTexts ?? []) payloads.push({ where: `words drawn into bit ${p.bit} of ${p.ch} (a picture in the bits, read by OCR)`, text: p.text });
+      for (const c of state.codes ?? []) payloads.push({ where: `a QR code in ${c.label}`, text: c.text });
       if (meta.trailing) payloads.push({ where: `data appended after the end of the image${meta.trailing.embedded ? ` (${meta.trailing.embedded})` : ""}`, text: meta.trailing.strings.join(" ") || `${meta.trailing.length} bytes` });
       if (state.faintText) payloads.push({ where: "near-invisible shapes in flat colour, read in order", text: state.faintText });
       const techniques = [];
       for (const m of lsb.messages) techniques.push(`LSB replacement: ${m.kind === "file" ? "a file" : "text"} in ${[...m.cfg.channels].join(",")} bit ${m.cfg.bits.join("+")}, ${m.cfg.order === "cols" ? "by columns" : "by rows"}${m.framing ? `, ${m.framing}` : ""}${m.decoded?.length ? `, ${m.decoded.map((l) => l.encoding).join(" + ")}-encoded` : ""}`);
+      if (state.planeTexts?.length) techniques.push("text drawn as a picture into a single bit plane, invisible in the image and unreadable as bytes");
+      for (const c of state.codes ?? []) techniques.push(c.inPlane ? `a QR code drawn into ${c.label}, invisible in the normal picture` : `a visible QR code in ${c.label}`);
       if (meta.trailing) techniques.push("a file appended after the image's end marker, which viewers ignore");
       if (findings.some((f) => /look filled|Noise in the lowest bits/.test(f.title))) techniques.push("statistical signs of data in the lowest bits");
       if (findings.some((f) => /^Embedded text|generation prompt/.test(f.title))) techniques.push("text stored in the file's metadata");
@@ -668,7 +814,7 @@ async function analyze(file) {
       // If Qwen still has to load, its loading line shows first and the
       // "writing" line follows once it's ready (no flash of the wrong text).
       if (readyModels.has("qwen")) { phaseText = WRITING; renderProgress(); }
-      const res = await call("qwen", { images, system, prompt, maxNewTokens: 450 });
+      const res = await call("qwen", { images, system, prompt, maxNewTokens: 540 });
       renderAi(res.text.trim());
       $("ai").dataset.looped = res.looped ? "1" : "";
       step(S.vlm, stopped ? "failed" : "done");

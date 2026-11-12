@@ -38,10 +38,10 @@
       <div class="demos">
         <p class="eyebrow" id="demo-label">Or try a demo</p>
         <div class="demo-grid" role="group" aria-labelledby="demo-label">
-          <button type="button" class="demo-card demo" data-src="demo/alpine-lake-chatgpt.png">
-            <img src="demo/thumbs/alpine-lake-chatgpt.jpg" alt="" width="480" height="270" />
-            <span class="demo-title">Alpine lake</span>
-            <span class="demo-sub">ChatGPT image with content credentials</span>
+          <button type="button" class="demo-card demo" data-src="demo/quiet-signal.png">
+            <img src="demo/thumbs/quiet-signal.jpg" alt="" width="480" height="320" />
+            <span class="demo-title">Quiet signal</span>
+            <span class="demo-sub">A sentence hidden in the pixels' lowest bits</span>
           </button>
           <button type="button" class="demo-card demo" data-src="demo/colour-stripes.png">
             <img src="demo/thumbs/colour-stripes.jpg" alt="" width="480" height="270" />
@@ -56,7 +56,7 @@
           <button type="button" class="demo-card" id="sample">
             <canvas id="sample-preview" width="480" height="270" aria-hidden="true"></canvas>
             <span class="demo-title">Harbour</span>
-            <span class="demo-sub">Two hidden messages, an attached file, a faint watermark</span>
+            <span class="demo-sub">Messages in its bits, an attached file, a faint watermark</span>
           </button>
         </div>
       </div>
@@ -118,6 +118,7 @@
           <canvas id="view"></canvas>
           <svg id="overlay" preserveAspectRatio="none"></svg>
         </div>
+        <p class="inspect" id="view-inspect">Point at the picture to read a pixel's values.</p>
         <label class="option option-small">
           <span class="option-text"><span class="option-title">Show boxes</span></span>
           <input type="checkbox" class="switch" role="switch" id="show-boxes" checked />
@@ -128,6 +129,13 @@
         <h2>Decoder</h2>
         <p class="hint">Read bytes straight out of the pixels, the way steganography tools hide them. Open a hit from the scan, or pick channels and bits yourself.</p>
         <ul class="hits" id="hits"></ul>
+        <div class="dec-actions dec-deep">
+          <button type="button" class="secondary" id="deep-scan">Search the whole image</button>
+          <span class="hint" id="deep-info">The automatic scan reads the first 4 KB of each ordering. This reads every bit (about a second).</span>
+        </div>
+        <p class="eyebrow dec-eyebrow" id="grid-label">Every bit plane</p>
+        <div class="plane-grid" id="plane-grid" role="group" aria-labelledby="grid-label"></div>
+        <p class="hint grid-hint">Low bits of an untouched image look like noise or echo its shapes. A word, QR code or picture showing up in one tile is hidden there. Click a tile to open it below.</p>
         <div class="dec-controls">
           <div class="dec-row"><span class="dec-label" id="dec-channels-label">Channels</span><div class="segmented" id="dec-channels" role="radiogroup" aria-labelledby="dec-channels-label"></div></div>
           <div class="dec-row"><span class="dec-label" id="dec-bits-label">Bits</span><div class="segmented" id="dec-bits" role="group" aria-labelledby="dec-bits-label"></div></div>
@@ -135,6 +143,7 @@
           <div class="dec-row"><span class="dec-label" id="dec-msb-label">Byte order</span><div class="segmented" id="dec-msb" role="radiogroup" aria-labelledby="dec-msb-label"></div></div>
         </div>
         <div class="stage"><canvas id="plane" class="pixelated"></canvas></div>
+        <p class="inspect" id="plane-inspect">Point at the picture to read a pixel's values.</p>
         <p class="dec-summary" id="dec-summary" aria-live="polite"></p>
         <pre class="dump" id="dump"></pre>
         <div class="dec-actions">

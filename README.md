@@ -28,14 +28,16 @@ Safari 26+).
 | File structure | Metadata (EXIF, XMP, PNG text), AI-generation prompts, non-standard blocks, data appended after the image | none |
 | Content credentials | C2PA manifest: declared source (e.g. AI-generated), the tool that made it, and recorded steps such as an added invisible watermark. Not signature-verified | none |
 | Hidden bits | Scans 60 channel, bit and order combinations (84 with alpha) for text and file signatures; strips tool framing (Stegano length prefix, end markers); decodes Base64, hex and binary. Plus a chi-square attack and aligned-pair analysis of flat areas | none |
-| Decoder | Any bit plane as a picture, a hex dump, and saving the bytes; embedded files cut at their real end; appended data saveable | none |
+| Decoder | Any bit plane as a picture, a grid of all planes, a whole-image search, a pixel readout, a hex dump, and saving the bytes; embedded files cut at their real end; appended data saveable | none |
+| Text in bit planes | Reads the lowest plane of each channel as a picture; keeps words not visible in the image | Florence-2-base |
+| QR codes | jsQR over the picture and the two lowest bit planes of each channel | none |
 | Faint marks | In flat-colour artwork, shapes only a few shades off the flat area around them; shown amplified and read in order | Florence-2-base |
 | Frequency | 2-D FFT; isolated peaks reveal grids, halftone, moiré and frequency watermarks | none |
 | Colour | Palette (k-means), saturation, histogram gaps, lowest-bit colour twins | none |
 | Resizing | Averaged vs point-sampled shrink, to catch image-scaling attacks | none |
 | Text | OCR on 768 px tiles of three views: normal, high saturation, low saturation. Text seen only in an enhanced view is flagged | Florence-2-base (~360 MB) |
 | Corner logos | Florence-2 grounds "logo" in each corner crop; a small tight box near the edges is a mark | Florence-2-base |
-| AI steganalysis | The downscaled image (~0.5 MP), its lowest-bit plane, close-ups, recovered payloads and detected techniques; reports verdict, payloads, technique, meaning and next steps | Qwen3-VL-2B-Instruct (~1.4 GB) |
+| AI steganalysis | The downscaled image (~0.5 MP), a grid of its lowest bit planes, close-ups, recovered payloads and detected techniques; reports verdict, payloads, visual clues, technique, meaning and next steps | Qwen3-VL-2B-Instruct (~1.4 GB) |
 
 PNG files are decoded in JavaScript so pixel values are exact. Browser
 (canvas) decoding can be altered by colour management and anti-fingerprinting
@@ -47,10 +49,10 @@ Visitors can remove them with one click.
 
 ## Demos
 
-Four one-click demos: a ChatGPT image with content credentials and a faint
-corner logo, colour stripes hiding seven faint letters, a real photo with an
-edit history, and a sample with two hidden messages, an attached file and a
-faint watermark. See [`demo/README.md`](demo/README.md).
+Four one-click demos: a starfield with a sentence in its lowest bits,
+colour stripes hiding seven faint letters, a real photo with an
+edit history, and a sample with three messages in its bits, an attached file
+and a faint watermark. See [`demo/README.md`](demo/README.md).
 
 Source and screenshots: [github.com/GHeart01/steganography-decoder](https://github.com/GHeart01/steganography-decoder)
 

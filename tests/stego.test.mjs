@@ -6,9 +6,9 @@ import fs from "node:fs";
 import { encode, decode } from "fast-png";
 import {
   extractBits, scanLsb, scanConfigs, normalizeCfg, decodeLayers, cleanMessage, carveFile, fileTypeAt,
-  bitPlaneView, colourMapView, hexDump, describeCfg, cfgCode, hitPayload,
+  bitPlaneView, colourMapView, hexDump, describeCfg, cfgCode, hitPayload, deepScan, planeSheet,
 } from "../lib/stego.js";
-import { analyzeLsb } from "../lib/forensics.js";
+import { analyzeLsb, faintMarks } from "../lib/forensics.js";
 
 const W = 200, H = 150;
 
@@ -207,4 +207,51 @@ test("decodeLayers: ROT13 and Caesar ciphers are broken; English and noise are l
   assert.deepEqual(two.map((l) => l.encoding), ["Base64", "ROT13"]);
   assert.deepEqual(decodeLayers("Meet at noon by the lighthouse"), []);
   assert.deepEqual(decodeLayers("Xq7 Lmp Wrt Bzzk Qqf"), []);
+});
+
+test("whole-image search finds a message far past the start that the quick scan misses", () => {
+  const filler = new Uint8Array(6000); // zero bytes: not text
+  const secret = "Buried deep in the middle of the image, past the scan window.";
+  const img = embedBits(photo(14), new Uint8Array([...filler, ...text(secret), 0]), { channels: "RGB" });
+  assert.deepEqual(scanLsb(img), []);
+  const hits = deepScan(img);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].message, secret);
+  assert.equal(hits[0].offset, 6000);
+  assert.deepEqual(deepScan(photo(15, { alpha: true })), []);
+});
+
+test("real demo: the Quiet signal sentence is found, and nothing else in the whole image", () => {
+  const img = loadPng("../demo/quiet-signal.png");
+  const [hit, ...rest] = scanLsb(img);
+  assert.equal(rest.length, 0);
+  assert.equal(hit.message, "THE QUIETEST SIGNAL CARRIES THE MESSAGE");
+  assert.deepEqual(deepScan(img).map((h) => h.message), ["THE QUIETEST SIGNAL CARRIES THE MESSAGE"]);
+  // Overlapping translucent circles leave slivers at the frame edge; they
+  // are not faint marks.
+  assert.equal(faintMarks(img).marks.length, 0);
+});
+
+test("bit plane sheet: one tile per channel and bit", () => {
+  const sheet = planeSheet(photo(16), { tile: 100, gap: 4 });
+  assert.equal(sheet.width, 4 * 100 + 3 * 4);
+  assert.equal(sheet.height, 3 * 75 + 2 * 4);
+});
+
+import jsQR from "jsqr";
+import { findCodes, codeSources, codeFindings } from "../lib/codes.js";
+
+test("QR code hidden in one bit plane is found and labelled with that plane", async () => {
+  const img = loadPng("./fixtures/qr-in-red-bit0.png");
+  const codes = await findCodes(img, codeSources(img), jsQR);
+  assert.equal(codes.length, 1);
+  assert.equal(codes[0].text, "https://example.com/the-flag-is-under-the-bench");
+  assert.equal(codes[0].label, "bit 0 of R");
+  assert.equal(codeFindings(codes)[0].title, "A QR code is hidden in bit 0 of R");
+});
+
+test("no QR codes in clean images", async () => {
+  for (const img of [photo(17), loadPng("../demo/quiet-signal.png")]) {
+    assert.deepEqual(await findCodes(img, codeSources(img), jsQR), []);
+  }
 });

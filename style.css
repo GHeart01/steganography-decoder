@@ -331,6 +331,19 @@ button:disabled { cursor: default; }
 .hit-sub { color: var(--muted); font-size: 0.6875rem; grid-column: 1; }
 .hit-text { grid-column: 1 / -1; font-size: 0.75rem; word-break: break-word; white-space: pre-wrap; margin-top: 4px; }
 .hit button { grid-column: 2; grid-row: 1 / span 2; }
+.dec-deep { margin: 0 0 18px; }
+.dec-eyebrow { margin: 0 0 8px; }
+.plane-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+.plane-grid button {
+  display: grid; gap: 3px; padding: 4px; border-radius: 8px; cursor: pointer;
+  background: var(--fill); border: 1px solid transparent; color: var(--muted);
+  font-size: 0.625rem; line-height: 1.2; transition: transform 120ms var(--ease-out);
+}
+.plane-grid button:active { transform: scale(0.96); }
+.plane-grid button[aria-pressed="true"] { border-color: var(--accent); color: var(--text); font-weight: 600; }
+.plane-grid canvas { width: 100%; height: auto; border-radius: 4px; image-rendering: pixelated; background: #000; }
+.grid-hint { margin: 8px 0 16px; }
+.inspect { font-size: 0.6875rem; color: var(--muted); margin: 8px 0 0; min-height: 1.6em; font-variant-numeric: tabular-nums; }
 .dec-controls { display: grid; gap: 2px; margin-bottom: 4px; }
 .dec-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .dec-row .segmented { margin-bottom: 8px; }
@@ -352,6 +365,7 @@ button:disabled { cursor: default; }
 .stage svg rect.hidden-text { stroke: #ff375f; stroke-dasharray: 6 3; }
 .stage svg rect.mark { stroke: #64d2ff; stroke-width: 2.5; }
 .stage svg rect.faint { stroke: #bf5af2; stroke-width: 2; }
+.stage svg rect.code { stroke: #30d158; stroke-width: 2.5; }
 
 .texts { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 .texts th {
@@ -394,6 +408,7 @@ footer a { color: inherit; }
   .finding .sev { grid-row: auto; justify-self: start; margin-bottom: 4px; }
   .finding > * { grid-column: 1; }
   .dec-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .plane-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .dec-label { margin-bottom: 0; }
 }
 

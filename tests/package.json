@@ -1,6 +1,11 @@
 {
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --test" },
-  "devDependencies": { "fast-png": "8.0.0" }
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "fast-png": "8.0.0",
+    "jsqr": "1.4.0"
+  }
 }
